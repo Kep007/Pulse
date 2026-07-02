@@ -1,5 +1,5 @@
 :root {
-  color: #f7f2ea;
+  color: #172033;
   background: transparent;
   font-family:
     Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
@@ -33,10 +33,9 @@ button {
   grid-template-rows: 1fr 30px;
   gap: 8px;
   padding: 10px;
-  border: 1px solid rgba(255, 255, 255, 0.14);
   border-radius: 8px;
-  background: rgba(24, 27, 31, 0.94);
-  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.28);
+  background: #ffffff;
+  box-shadow: 0 14px 34px rgba(17, 24, 39, 0.14);
   -webkit-app-region: drag;
 }
 
@@ -63,6 +62,11 @@ button {
   box-shadow: 0 0 0 3px rgba(52, 211, 153, 0.16);
 }
 
+.status-dot.paused {
+  background: #94a3b8;
+  box-shadow: 0 0 0 3px rgba(148, 163, 184, 0.18);
+}
+
 .project {
   min-width: 0;
   display: grid;
@@ -70,7 +74,7 @@ button {
 }
 
 .label {
-  color: #aeb7c2;
+  color: #667085;
   font-size: 11px;
   line-height: 1;
 }
@@ -78,7 +82,7 @@ button {
 strong {
   min-width: 0;
   overflow: hidden;
-  color: #fffaf2;
+  color: #101828;
   font-size: 15px;
   line-height: 1.15;
   text-overflow: ellipsis;
@@ -86,7 +90,7 @@ strong {
 }
 
 time {
-  color: #f8d477;
+  color: #2563eb;
   font-size: 16px;
   font-variant-numeric: tabular-nums;
   line-height: 1;
@@ -106,14 +110,23 @@ time {
 .actions button {
   min-width: 0;
   height: 30px;
-  border: 1px solid rgba(255, 255, 255, 0.12);
+  border: 0;
   border-radius: 6px;
-  color: #f7f2ea;
-  background: rgba(255, 255, 255, 0.07);
+  color: #172033;
+  background: #eef2f7;
   cursor: pointer;
   -webkit-app-region: no-drag;
 }
 
-.actions button:hover {
-  background: rgba(255, 255, 255, 0.11);
+.actions button.primary {
+  color: #ffffff;
+  background: #2563eb;
+}
+
+.actions button.primary:hover {
+  background: #1d4ed8;
+}
+
+.actions button.secondary:hover {
+  background: #e2e8f0;
 }
