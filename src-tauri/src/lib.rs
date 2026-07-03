@@ -88,9 +88,12 @@ pub fn run() {
             let quit = MenuItem::with_id(app, "quit", "Esci", true, None::<&str>)?;
             let menu = Menu::with_items(app, &[&show, &dashboard, &quit])?;
 
-            let _tray = TrayIconBuilder::new()
-                .tooltip("Pulse")
-                .menu(&menu)
+            let mut tray_builder = TrayIconBuilder::new().tooltip("Pulse").menu(&menu);
+            if let Some(icon) = app.default_window_icon() {
+                tray_builder = tray_builder.icon(icon.clone());
+            }
+
+            let _tray = tray_builder
                 .show_menu_on_left_click(false)
                 .on_menu_event(|app, event| match event.id.as_ref() {
                     "show" => show_widget(app),

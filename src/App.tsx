@@ -1,5 +1,5 @@
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { MouseEvent } from "react";
 import { IconHome, IconPause, IconPlay, IconSwitch, IconTag } from "./components/icons";
 import { useElapsedSeconds } from "./lib/events";
@@ -11,14 +11,20 @@ import { ProjectPicker } from "./widget/ProjectPicker";
 import { useHoverExpand, useHoverIntent } from "./widget/useHoverExpand";
 import { dockToSavedCorner, saveCurrentCornerFromPosition } from "./widget/widgetPosition";
 
-// Fixed rather than measured-to-fit: comfortably fits the longest strings in
-// use ("Nessun progetto rilevato", 12-char project names) plus the timer and
-// home button. A measure-and-resize-to-content approach was tried but hit a
-// window/webview size mismatch on multi-monitor DPI setups that clipped
-// content, so a generous fixed width is the more robust choice here.
-const COLLAPSED_SIZE = { width: 260, height: 40 };
-const EXPANDED_SIZE = { width: 300, height: 112 };
-const PICKER_SIZE = { width: 300, height: 320 };
+const COLLAPSED_HEIGHT = 40;
+const MIN_COLLAPSED_WIDTH = 150;
+const MAX_COLLAPSED_WIDTH = 300;
+// Padding + dot + gaps + inline-switch button, generously rounded up — the
+// project name text is measured separately since it's the only part whose
+// width actually varies. A first attempt at this undercounted the chrome
+// and clipped the trailing button, so this build in a larger safety margin
+// on top of the literal box-model math.
+const BASE_CHROME_WIDTH = 94;
+// Extra allowance for the "00:00:00" timer + its gap when shown.
+const TIMER_CHROME_WIDTH = 60;
+
+const EXPANDED_SIZE = { width: MAX_COLLAPSED_WIDTH, height: 112 };
+const PICKER_SIZE = { width: MAX_COLLAPSED_WIDTH, height: 320 };
 
 type OpenPicker = "project" | "activity" | null;
 
@@ -28,6 +34,8 @@ export function App() {
   const [openPicker, setOpenPicker] = useState<OpenPicker>(null);
   const [isHovered, setIsHovered] = useState(false);
   const [isDocked, setIsDocked] = useState(false);
+  const [collapsedWidth, setCollapsedWidth] = useState(MIN_COLLAPSED_WIDTH);
+  const measureRef = useRef<HTMLSpanElement>(null);
   const moveSaveTimer = useRef<number | null>(null);
   // Only a real user drag (via startDragging) should ever persist a new
   // corner — our own hover-expand resizes also move the window, and trying
@@ -40,7 +48,23 @@ export function App() {
   const activityName = state?.activityType?.name ?? "Nessuna attività";
   const hasTimer = Boolean(state?.project || state?.activityType);
 
-  const targetSize = openPicker ? PICKER_SIZE : isHovered ? EXPANDED_SIZE : COLLAPSED_SIZE;
+  // Measures the natural (untruncated) width of the project name so the
+  // collapsed pill can shrink/grow to fit it — short names like "GPT"
+  // shouldn't sit in a pill sized for "Nessun progetto rilevato". The
+  // visible text lives in a `1fr` grid track, whose own box never reflects
+  // its natural width, hence the separate hidden measuring span.
+  useLayoutEffect(() => {
+    const textWidth = measureRef.current?.scrollWidth ?? 0;
+    const chrome = BASE_CHROME_WIDTH + (hasTimer ? TIMER_CHROME_WIDTH : 0);
+    const next = Math.min(MAX_COLLAPSED_WIDTH, Math.max(MIN_COLLAPSED_WIDTH, textWidth + chrome));
+    setCollapsedWidth(next);
+  }, [projectName, hasTimer]);
+
+  const collapsedSize = useMemo(
+    () => ({ width: collapsedWidth, height: COLLAPSED_HEIGHT }),
+    [collapsedWidth],
+  );
+  const targetSize = openPicker ? PICKER_SIZE : isHovered ? EXPANDED_SIZE : collapsedSize;
   useHoverExpand(targetSize, isDocked);
   useHoverIntent(setIsHovered);
 
@@ -52,7 +76,7 @@ export function App() {
   // preserving the OS's default placement instead of the saved corner.
   useEffect(() => {
     let cancelled = false;
-    dockToSavedCorner(COLLAPSED_SIZE.width, COLLAPSED_SIZE.height)
+    dockToSavedCorner(MIN_COLLAPSED_WIDTH, COLLAPSED_HEIGHT)
       .catch((error) => console.error("Unable to dock widget to corner", error))
       .finally(() => {
         if (!cancelled) {
@@ -138,6 +162,21 @@ export function App() {
       data-tauri-drag-region
       onMouseDown={startDrag}
     >
+      <span
+        ref={measureRef}
+        aria-hidden="true"
+        style={{
+          position: "absolute",
+          visibility: "hidden",
+          whiteSpace: "nowrap",
+          fontSize: 13,
+          fontWeight: 600,
+          pointerEvents: "none",
+        }}
+      >
+        {projectName}
+      </span>
+
       <section className="drag-zone" data-tauri-drag-region>
         <div
           className={isPaused ? "status-dot paused" : "status-dot"}
@@ -157,7 +196,7 @@ export function App() {
               title="Cambia progetto"
               onClick={() => setOpenPicker((current) => (current === "project" ? null : "project"))}
             >
-              <IconSwitch size={11} />
+              <IconSwitch size={12} />
             </button>
           </div>
         </div>

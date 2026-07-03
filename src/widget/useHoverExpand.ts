@@ -4,15 +4,32 @@ import { useEffect, useRef } from "react";
 
 const COLLAPSE_GRACE_MS = 400;
 const HOVER_POLL_MS = 150;
+const RESIZE_ANIMATION_MS = 220;
+const RESIZE_FRAME_MS = 16;
 
 export type SizeSpec = { width: number; height: number };
 
+function easeOutCubic(t: number) {
+  return 1 - (1 - t) ** 3;
+}
+
+function lerp(from: number, to: number, t: number) {
+  return from + (to - from) * t;
+}
+
+function wait(ms: number) {
+  return new Promise((resolve) => window.setTimeout(resolve, ms));
+}
+
 /**
- * Resizes the widget window to `targetSize`, keeping whichever screen
- * corner it's docked to visually fixed — Tauri always resizes from the
+ * Animates the widget window to `targetSize` over a short tween — Tauri has
+ * no native window-resize animation API, so this steps setSize/setPosition
+ * across a handful of frames with an easing curve — while keeping whichever
+ * screen corner it's docked to visually fixed. Tauri always resizes from the
  * top-left origin, so the anchor edges (whichever half of the monitor the
- * window currently sits in) have to be recomputed and paired with every
- * setSize, otherwise growing the window would drift away from its corner.
+ * window currently sits in) have to be recomputed once up front and
+ * interpolated toward alongside the size, otherwise growing the window
+ * would drift away from its corner instead of expanding toward it.
  */
 export function useHoverExpand(targetSize: SizeSpec, enabled: boolean) {
   useEffect(() => {
@@ -22,7 +39,7 @@ export function useHoverExpand(targetSize: SizeSpec, enabled: boolean) {
 
     let cancelled = false;
 
-    async function applySize() {
+    async function animateToTarget() {
       const win = getCurrentWindow();
       const scale = await win.scaleFactor();
       const [physicalPosition, physicalSize, monitor] = await Promise.all([
@@ -34,23 +51,43 @@ export function useHoverExpand(targetSize: SizeSpec, enabled: boolean) {
         return;
       }
 
-      const position = physicalPosition.toLogical(scale);
-      const size = physicalSize.toLogical(scale);
+      const startPosition = physicalPosition.toLogical(scale);
+      const startSize = physicalSize.toLogical(scale);
       const monitorSize = monitor ? monitor.size.toLogical(scale) : null;
 
-      const currentRight = position.x + size.width;
-      const currentBottom = position.y + size.height;
+      const currentRight = startPosition.x + startSize.width;
+      const currentBottom = startPosition.y + startSize.height;
       const anchorRight = monitorSize ? currentRight > monitorSize.width / 2 : false;
       const anchorBottom = monitorSize ? currentBottom > monitorSize.height / 2 : false;
 
-      const nextX = anchorRight ? currentRight - targetSize.width : position.x;
-      const nextY = anchorBottom ? currentBottom - targetSize.height : position.y;
+      const endX = anchorRight ? currentRight - targetSize.width : startPosition.x;
+      const endY = anchorBottom ? currentBottom - targetSize.height : startPosition.y;
 
-      await win.setSize(new LogicalSize(targetSize.width, targetSize.height));
-      await win.setPosition(new LogicalPosition(nextX, nextY));
+      const steps = Math.max(1, Math.round(RESIZE_ANIMATION_MS / RESIZE_FRAME_MS));
+
+      for (let step = 1; step <= steps; step++) {
+        if (cancelled) {
+          return;
+        }
+
+        const t = easeOutCubic(step / steps);
+        const width = Math.round(lerp(startSize.width, targetSize.width, t));
+        const height = Math.round(lerp(startSize.height, targetSize.height, t));
+        const x = Math.round(lerp(startPosition.x, endX, t));
+        const y = Math.round(lerp(startPosition.y, endY, t));
+
+        await Promise.all([
+          win.setSize(new LogicalSize(width, height)),
+          win.setPosition(new LogicalPosition(x, y)),
+        ]);
+
+        if (step < steps) {
+          await wait(RESIZE_FRAME_MS);
+        }
+      }
     }
 
-    applySize().catch((error) => console.error("Unable to resize widget", error));
+    animateToTarget().catch((error) => console.error("Unable to resize widget", error));
 
     return () => {
       cancelled = true;
