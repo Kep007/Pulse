@@ -1,0 +1,85 @@
+import { invoke } from "@tauri-apps/api/core";
+import type {
+  ActivityTypeDto,
+  DayBucket,
+  MonthBucket,
+  ProjectDto,
+  SegmentDto,
+  TrackingState,
+} from "./types";
+
+export function getCurrentState() {
+  return invoke<TrackingState>("get_current_state");
+}
+
+export function listProjects() {
+  return invoke<ProjectDto[]>("list_projects");
+}
+
+export function listActivityTypes() {
+  return invoke<ActivityTypeDto[]>("list_activity_types");
+}
+
+export function setActiveProject(projectId: number | null) {
+  return invoke<TrackingState>("set_active_project", { projectId });
+}
+
+export function setActiveActivity(activityTypeId: number | null) {
+  return invoke<TrackingState>("set_active_activity", { activityTypeId });
+}
+
+export function pauseTracking() {
+  return invoke<TrackingState>("pause_tracking");
+}
+
+export function resumeTracking() {
+  return invoke<TrackingState>("resume_tracking");
+}
+
+export function openHomeWindow() {
+  return invoke<void>("open_home_window");
+}
+
+export function quitApp() {
+  return invoke<void>("quit_app");
+}
+
+export function setAutostart(enabled: boolean) {
+  return invoke<boolean>("set_autostart", { enabled });
+}
+
+export function getAutostartStatus() {
+  return invoke<boolean>("get_autostart_status");
+}
+
+export function resetAllData() {
+  return invoke<TrackingState>("reset_all_data");
+}
+
+export function getDailySummary(from: string, to: string) {
+  return invoke<DayBucket[]>("get_daily_summary", { from, to });
+}
+
+export function getMonthlySummary(from: string, to: string) {
+  return invoke<MonthBucket[]>("get_monthly_summary", { from, to });
+}
+
+export function getDayDetail(date: string) {
+  return invoke<SegmentDto[]>("get_day_detail", { date });
+}
+
+export function confirmPendingSuggestion() {
+  return invoke<TrackingState>("confirm_pending_suggestion");
+}
+
+export function denyPendingSuggestion() {
+  return invoke<TrackingState>("deny_pending_suggestion");
+}
+
+export function getConfirmShortcut() {
+  return invoke<string>("get_confirm_shortcut");
+}
+
+export function setConfirmShortcut(shortcut: string) {
+  return invoke<string>("set_confirm_shortcut", { shortcut });
+}

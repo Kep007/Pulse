@@ -1,0 +1,11 @@
+export { IconPlay } from "./IconPlay";
+export { IconPause } from "./IconPause";
+export { IconSwitch } from "./IconSwitch";
+export { IconSettingsGear } from "./IconSettingsGear";
+export { IconChart } from "./IconChart";
+export { IconHome } from "./IconHome";
+export { IconTag } from "./IconTag";
+export { IconClose } from "./IconClose";
+export { IconChevron } from "./IconChevron";
+export { IconCheck } from "./IconCheck";
+export type { IconProps } from "./types";

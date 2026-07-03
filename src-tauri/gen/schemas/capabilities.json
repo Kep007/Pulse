@@ -1,1 +1,1 @@
-{}
+{"default":{"identifier":"default","description":"Default permissions for Pulse's windows","local":true,"windows":["main","home","toast"],"permissions":["core:default","core:window:allow-set-position","core:window:allow-set-size","core:window:allow-start-dragging","store:default"]}}

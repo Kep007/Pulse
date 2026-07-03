@@ -14,14 +14,43 @@
       {
         "label": "main",
         "title": "Pulse",
-        "width": 300,
-        "height": 86,
+        "width": 220,
+        "height": 40,
         "decorations": false,
         "transparent": true,
         "alwaysOnTop": true,
-        "resizable": false,
+        "resizable": true,
         "skipTaskbar": true,
         "visible": true
+      },
+      {
+        "label": "home",
+        "title": "Pulse",
+        "width": 820,
+        "height": 600,
+        "minWidth": 720,
+        "minHeight": 480,
+        "decorations": true,
+        "transparent": false,
+        "alwaysOnTop": false,
+        "resizable": true,
+        "skipTaskbar": false,
+        "visible": false
+      },
+      {
+        "label": "toast",
+        "title": "Pulse",
+        "width": 320,
+        "height": 40,
+        "x": 16,
+        "y": 16,
+        "decorations": false,
+        "transparent": true,
+        "alwaysOnTop": true,
+        "resizable": true,
+        "skipTaskbar": true,
+        "shadow": false,
+        "visible": false
       }
     ],
     "security": {
