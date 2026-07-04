@@ -1,6 +1,5 @@
 import { useEffect, useState } from "react";
 import { getDailySummary, getMonthlySummary } from "../../lib/tauri";
-import { useTrackingState } from "../../lib/TrackingContext";
 import type { BreakdownMetric, DayBucket, MonthBucket } from "../../lib/types";
 import { Heatmap } from "./Heatmap";
 import { MonthlySummary } from "./MonthlySummary";
@@ -14,7 +13,6 @@ function isoDate(date: Date) {
 }
 
 export function DashboardView() {
-  const state = useTrackingState();
   const [metric, setMetric] = useState<BreakdownMetric>("project");
   const [dailyBuckets, setDailyBuckets] = useState<DayBucket[]>([]);
   const [monthlyBuckets, setMonthlyBuckets] = useState<MonthBucket[]>([]);
@@ -32,14 +30,6 @@ export function DashboardView() {
 
   return (
     <div className="dashboard-view">
-      <section className="now-card">
-        <span className="label">
-          {state?.isPaused ? "In pausa" : state?.source === "manual" ? "Manuale" : "Automatico"}
-        </span>
-        <strong>{state?.project?.name ?? "Nessun progetto rilevato"}</strong>
-        <span className="now-activity">{state?.activityType?.name ?? "Nessuna attività"}</span>
-      </section>
-
       <div className="dashboard-toolbar">
         <RangeSwitcher metric={metric} onChange={setMetric} />
       </div>

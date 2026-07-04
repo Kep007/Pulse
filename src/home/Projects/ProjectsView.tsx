@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
-import type { DragEvent, KeyboardEvent } from "react";
+import { useEffect, useRef, useState } from "react";
+import type { KeyboardEvent, PointerEvent } from "react";
 import { ConfirmDialog } from "../../components/ConfirmDialog";
 import {
   archiveProject,
@@ -10,17 +10,14 @@ import {
 } from "../../lib/tauri";
 import type { ProjectDto } from "../../lib/types";
 
-const DEFAULT_COLOR = "#2563eb";
-
 export function ProjectsView() {
   const [projects, setProjects] = useState<ProjectDto[]>([]);
   const [newName, setNewName] = useState("");
-  const [newColor, setNewColor] = useState(DEFAULT_COLOR);
   const [editingId, setEditingId] = useState<number | null>(null);
   const [editName, setEditName] = useState("");
-  const [editColor, setEditColor] = useState(DEFAULT_COLOR);
   const [archiveTarget, setArchiveTarget] = useState<ProjectDto | null>(null);
-  const [draggedId, setDraggedId] = useState<number | null>(null);
+  const [draggingId, setDraggingId] = useState<number | null>(null);
+  const rowRefs = useRef(new Map<number, HTMLTableRowElement>());
 
   useEffect(() => {
     void refresh();
@@ -35,16 +32,14 @@ export function ProjectsView() {
     if (!name) {
       return;
     }
-    await createProject(name, newColor);
+    await createProject(name, null);
     setNewName("");
-    setNewColor(DEFAULT_COLOR);
     await refresh();
   }
 
   function startEdit(project: ProjectDto) {
     setEditingId(project.id);
     setEditName(project.name);
-    setEditColor(project.color ?? DEFAULT_COLOR);
   }
 
   async function saveEdit() {
@@ -55,7 +50,7 @@ export function ProjectsView() {
     if (!name) {
       return;
     }
-    await updateProject(editingId, name, editColor);
+    await updateProject(editingId, name, null);
     setEditingId(null);
     await refresh();
   }
@@ -69,13 +64,44 @@ export function ProjectsView() {
     await refresh();
   }
 
-  function handleDragOver(event: DragEvent<HTMLTableRowElement>, overId: number) {
+  function handleEditKeyDown(event: KeyboardEvent<HTMLInputElement>) {
+    if (event.key === "Enter") {
+      void saveEdit();
+    } else if (event.key === "Escape") {
+      setEditingId(null);
+    }
+  }
+
+  // Pointer events (not native HTML5 drag-and-drop, which WebView2 supports
+  // inconsistently — dragover would fire on the row but the visual reorder
+  // never actually applied) with explicit pointer capture: once captured,
+  // every subsequent move/up for that pointer keeps routing to the handle
+  // that started the drag, regardless of what element the cursor is
+  // physically over, so hovering another row while still holding down still
+  // reports moves correctly.
+  function handlePointerDown(event: PointerEvent<HTMLTableCellElement>, projectId: number) {
     event.preventDefault();
-    if (draggedId === null || draggedId === overId) {
+    setDraggingId(projectId);
+    event.currentTarget.setPointerCapture(event.pointerId);
+  }
+
+  function handlePointerMove(event: PointerEvent<HTMLTableCellElement>) {
+    if (draggingId === null) {
+      return;
+    }
+    let overId: number | null = null;
+    for (const [id, row] of rowRefs.current) {
+      const rect = row.getBoundingClientRect();
+      if (event.clientY >= rect.top && event.clientY <= rect.bottom) {
+        overId = id;
+        break;
+      }
+    }
+    if (overId === null || overId === draggingId) {
       return;
     }
     setProjects((current) => {
-      const from = current.findIndex((project) => project.id === draggedId);
+      const from = current.findIndex((project) => project.id === draggingId);
       const to = current.findIndex((project) => project.id === overId);
       if (from === -1 || to === -1) {
         return current;
@@ -87,20 +113,12 @@ export function ProjectsView() {
     });
   }
 
-  async function handleDrop() {
-    if (draggedId === null) {
+  async function handlePointerUp() {
+    if (draggingId === null) {
       return;
     }
-    setDraggedId(null);
+    setDraggingId(null);
     await reorderProjects(projects.map((project) => project.id));
-  }
-
-  function handleEditKeyDown(event: KeyboardEvent<HTMLInputElement>) {
-    if (event.key === "Enter") {
-      void saveEdit();
-    } else if (event.key === "Escape") {
-      setEditingId(null);
-    }
   }
 
   return (
@@ -112,21 +130,23 @@ export function ProjectsView() {
             {projects.map((project) => (
               <tr
                 key={project.id}
-                draggable
-                className={draggedId === project.id ? "project-row dragging" : "project-row"}
-                onDragStart={() => setDraggedId(project.id)}
-                onDragOver={(event) => handleDragOver(event, project.id)}
-                onDrop={() => void handleDrop()}
-                onDragEnd={() => setDraggedId(null)}
+                ref={(el) => {
+                  if (el) {
+                    rowRefs.current.set(project.id, el);
+                  } else {
+                    rowRefs.current.delete(project.id);
+                  }
+                }}
+                className={draggingId === project.id ? "project-row dragging" : "project-row"}
               >
-                <td className="drag-handle" title="Trascina per riordinare">
+                <td
+                  className="drag-handle"
+                  title="Trascina per riordinare"
+                  onPointerDown={(event) => handlePointerDown(event, project.id)}
+                  onPointerMove={handlePointerMove}
+                  onPointerUp={() => void handlePointerUp()}
+                >
                   ⠿
-                </td>
-                <td className="project-color-cell">
-                  <span
-                    className="color-swatch"
-                    style={{ background: project.color ?? "#d0d5dd" }}
-                  />
                 </td>
                 <td className="project-name-cell">
                   {editingId === project.id ? (
@@ -144,12 +164,6 @@ export function ProjectsView() {
                 <td className="project-actions-cell">
                   {editingId === project.id ? (
                     <>
-                      <input
-                        type="color"
-                        className="color-input"
-                        value={editColor}
-                        onChange={(event) => setEditColor(event.target.value)}
-                      />
                       <button type="button" onClick={() => void saveEdit()}>
                         Salva
                       </button>
@@ -178,12 +192,6 @@ export function ProjectsView() {
         </table>
 
         <div className="add-project-row">
-          <input
-            type="color"
-            className="color-input"
-            value={newColor}
-            onChange={(event) => setNewColor(event.target.value)}
-          />
           <input
             type="text"
             placeholder="Nome nuovo progetto"
