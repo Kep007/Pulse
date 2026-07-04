@@ -43,8 +43,15 @@ button {
   border-radius: 12px;
   background: #ffffff;
   box-shadow: 0 14px 34px rgba(17, 24, 39, 0.14);
-  cursor: move;
   overflow: hidden;
+}
+
+/* Instant, not transitioned: this is a hide-from-the-cursor mechanism (see
+   the isFaded effect in App.tsx, which pairs it with click-through) rather
+   than a decorative fade, so it needs to disappear the moment the cursor
+   lands on it, not a moment later. */
+.widget.faded {
+  opacity: 0;
 }
 
 .widget.expanded {
@@ -79,7 +86,6 @@ button {
      too), so they land on the same grid row as the name and stay vertically
      centered on it — whether or not the label row above is present. */
   gap: 2px 8px;
-  cursor: move;
   user-select: none;
 }
 

@@ -44,6 +44,10 @@ export function quitApp() {
   return invoke<void>("quit_app");
 }
 
+export function isCtrlPressed() {
+  return invoke<boolean>("is_ctrl_pressed");
+}
+
 export function setAutostart(enabled: boolean) {
   return invoke<boolean>("set_autostart", { enabled });
 }

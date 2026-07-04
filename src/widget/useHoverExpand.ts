@@ -1,9 +1,12 @@
 import { LogicalPosition, LogicalSize } from "@tauri-apps/api/dpi";
 import { cursorPosition, currentMonitor, getCurrentWindow } from "@tauri-apps/api/window";
 import { useEffect, useRef } from "react";
+import { isCtrlPressed } from "../lib/tauri";
 
 const COLLAPSE_GRACE_MS = 400;
 const HOVER_POLL_MS = 150;
+
+export type WidgetHoverState = "idle" | "fade" | "expand";
 
 export type SizeSpec = { width: number; height: number };
 
@@ -71,17 +74,23 @@ export function useHoverExpand(targetSize: SizeSpec, enabled: boolean) {
 }
 
 /**
- * Tracks whether the cursor is over the window by polling the OS cursor
- * position against the window's own bounds, rather than DOM
- * mouseenter/mouseleave — those stop firing reliably once the window loses
- * OS focus (which it constantly does, since it's an always-on-top utility
- * widget sitting over whatever app the user is actually working in), so a
- * mouseleave while the widget still has the mouse over it but not focus
- * would never arrive and the widget would stay expanded forever.
+ * Tracks whether the cursor is over the window (and whether Ctrl is held)
+ * by polling the OS cursor position and key state against the window's own
+ * bounds, rather than DOM mouseenter/mouseleave/keydown — those stop firing
+ * reliably once the window loses OS focus (which it constantly does, since
+ * it's an always-on-top utility widget sitting over whatever app the user
+ * is actually working in, and becomes click-through besides once faded), so
+ * a mouseleave while the widget still has the mouse over it but not focus
+ * would never arrive and the widget would stay stuck.
+ *
+ * Plain hover fades the widget out (see "fade" below) so it never blocks a
+ * click meant for whatever window is underneath — Ctrl+hover is the
+ * deliberate override that brings it to full visibility/interactivity
+ * instead.
  */
-export function useHoverIntent(onChange: (hovered: boolean) => void) {
+export function useHoverIntent(onChange: (state: WidgetHoverState) => void) {
   const collapseTimer = useRef<number | null>(null);
-  const isHoveredRef = useRef(false);
+  const stateRef = useRef<WidgetHoverState>("idle");
 
   useEffect(() => {
     let cancelled = false;
@@ -89,10 +98,11 @@ export function useHoverIntent(onChange: (hovered: boolean) => void) {
     async function poll() {
       try {
         const win = getCurrentWindow();
-        const [cursor, position, size] = await Promise.all([
+        const [cursor, position, size, ctrlPressed] = await Promise.all([
           cursorPosition(),
           win.outerPosition(),
           win.outerSize(),
+          isCtrlPressed(),
         ]);
         if (cancelled) {
           return;
@@ -104,20 +114,22 @@ export function useHoverIntent(onChange: (hovered: boolean) => void) {
           cursor.y >= position.y &&
           cursor.y <= position.y + size.height;
 
-        if (inside) {
+        const nextState: WidgetHoverState = !inside ? "idle" : ctrlPressed ? "expand" : "fade";
+
+        if (nextState !== "idle") {
           if (collapseTimer.current !== null) {
             window.clearTimeout(collapseTimer.current);
             collapseTimer.current = null;
           }
-          if (!isHoveredRef.current) {
-            isHoveredRef.current = true;
-            onChange(true);
+          if (stateRef.current !== nextState) {
+            stateRef.current = nextState;
+            onChange(nextState);
           }
-        } else if (isHoveredRef.current && collapseTimer.current === null) {
+        } else if (stateRef.current !== "idle" && collapseTimer.current === null) {
           collapseTimer.current = window.setTimeout(() => {
             collapseTimer.current = null;
-            isHoveredRef.current = false;
-            onChange(false);
+            stateRef.current = "idle";
+            onChange("idle");
           }, COLLAPSE_GRACE_MS);
         }
       } catch (error) {

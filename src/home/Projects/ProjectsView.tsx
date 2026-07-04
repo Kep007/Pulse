@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { KeyboardEvent, PointerEvent } from "react";
 import { ConfirmDialog } from "../../components/ConfirmDialog";
 import {
@@ -10,6 +10,8 @@ import {
 } from "../../lib/tauri";
 import type { ProjectDto } from "../../lib/types";
 
+const REFLOW_TRANSITION = "transform 180ms ease";
+
 export function ProjectsView() {
   const [projects, setProjects] = useState<ProjectDto[]>([]);
   const [newName, setNewName] = useState("");
@@ -18,6 +20,11 @@ export function ProjectsView() {
   const [archiveTarget, setArchiveTarget] = useState<ProjectDto | null>(null);
   const [draggingId, setDraggingId] = useState<number | null>(null);
   const rowRefs = useRef(new Map<number, HTMLTableRowElement>());
+  // Rects captured just before a reorder, so the layout effect below can
+  // measure how far each row actually jumped and animate away that jump —
+  // the classic FLIP technique (First, Last, Invert, Play).
+  const preReorderRects = useRef(new Map<number, DOMRect>());
+  const lastPointerY = useRef(0);
 
   useEffect(() => {
     void refresh();
@@ -72,16 +79,73 @@ export function ProjectsView() {
     }
   }
 
-  // Pointer events (not native HTML5 drag-and-drop, which WebView2 supports
-  // inconsistently — dragover would fire on the row but the visual reorder
-  // never actually applied) with explicit pointer capture: once captured,
-  // every subsequent move/up for that pointer keeps routing to the handle
-  // that started the drag, regardless of what element the cursor is
-  // physically over, so hovering another row while still holding down still
-  // reports moves correctly.
+  function captureRects() {
+    const rects = new Map<number, DOMRect>();
+    for (const [id, row] of rowRefs.current) {
+      rects.set(id, row.getBoundingClientRect());
+    }
+    preReorderRects.current = rects;
+  }
+
+  // Keeps the row glued to the cursor by re-measuring its own current
+  // layout slot every time, rather than tracking distance travelled since
+  // pointerdown — that would drift out of sync the moment a reorder moves
+  // the row to a different slot underneath the still-held pointer.
+  function followPointer(draggedId: number, clientY: number) {
+    const row = rowRefs.current.get(draggedId);
+    if (!row) {
+      return;
+    }
+    const rect = row.getBoundingClientRect();
+    const offset = clientY - (rect.top + rect.height / 2);
+    row.style.transition = "none";
+    row.style.transform = `translateY(${offset}px) scale(1.02)`;
+  }
+
+  // Applies the FLIP animation to every row except the dragged one (which
+  // is being actively driven by followPointer instead): each row jumped
+  // straight to its new slot when React re-rendered, so this offsets it
+  // right back to where it visually was, then releases the offset on the
+  // next frame with a transition — reading as a smooth slide into place
+  // rather than a snap.
+  useLayoutEffect(() => {
+    const prevRects = preReorderRects.current;
+    if (prevRects.size === 0) {
+      return;
+    }
+    preReorderRects.current = new Map();
+
+    for (const [id, row] of rowRefs.current) {
+      if (id === draggingId) {
+        continue;
+      }
+      const prevRect = prevRects.get(id);
+      if (!prevRect) {
+        continue;
+      }
+      const newRect = row.getBoundingClientRect();
+      const deltaY = prevRect.top - newRect.top;
+      if (deltaY === 0) {
+        continue;
+      }
+      row.style.transition = "none";
+      row.style.transform = `translateY(${deltaY}px)`;
+      requestAnimationFrame(() => {
+        row.style.transition = REFLOW_TRANSITION;
+        row.style.transform = "";
+      });
+    }
+
+    if (draggingId !== null) {
+      followPointer(draggingId, lastPointerY.current);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [projects]);
+
   function handlePointerDown(event: PointerEvent<HTMLTableCellElement>, projectId: number) {
     event.preventDefault();
     setDraggingId(projectId);
+    lastPointerY.current = event.clientY;
     event.currentTarget.setPointerCapture(event.pointerId);
   }
 
@@ -89,17 +153,24 @@ export function ProjectsView() {
     if (draggingId === null) {
       return;
     }
+    lastPointerY.current = event.clientY;
+    followPointer(draggingId, event.clientY);
+
     let overId: number | null = null;
     for (const [id, row] of rowRefs.current) {
+      if (id === draggingId) {
+        continue;
+      }
       const rect = row.getBoundingClientRect();
       if (event.clientY >= rect.top && event.clientY <= rect.bottom) {
         overId = id;
         break;
       }
     }
-    if (overId === null || overId === draggingId) {
+    if (overId === null) {
       return;
     }
+    captureRects();
     setProjects((current) => {
       const from = current.findIndex((project) => project.id === draggingId);
       const to = current.findIndex((project) => project.id === overId);
@@ -117,12 +188,18 @@ export function ProjectsView() {
     if (draggingId === null) {
       return;
     }
+    const row = rowRefs.current.get(draggingId);
+    if (row) {
+      row.style.transition = REFLOW_TRANSITION;
+      row.style.transform = "";
+    }
+    const orderedIds = projects.map((project) => project.id);
     setDraggingId(null);
-    await reorderProjects(projects.map((project) => project.id));
+    await reorderProjects(orderedIds);
   }
 
   return (
-    <div className="projects-view">
+    <div className={draggingId !== null ? "projects-view dragging-active" : "projects-view"}>
       <section className="dashboard-card">
         <h2>Progetti</h2>
         <table className="projects-table">

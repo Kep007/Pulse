@@ -1,3 +1,4 @@
+use crate::detector;
 use tauri::{AppHandle, Manager};
 
 #[tauri::command]
@@ -11,4 +12,9 @@ pub fn open_home_window(app: AppHandle) {
 #[tauri::command]
 pub fn quit_app(app: AppHandle) {
     app.exit(0);
+}
+
+#[tauri::command]
+pub fn is_ctrl_pressed() -> bool {
+    detector::is_ctrl_pressed()
 }

@@ -10,6 +10,7 @@ use std::time::Duration;
 use tauri::{AppHandle, Emitter, Manager};
 
 pub use matcher::Matcher;
+pub use win::is_ctrl_pressed;
 
 const POLL_INTERVAL: Duration = Duration::from_secs(2);
 /// Consecutive polls a newly-detected project/activity must hold before it

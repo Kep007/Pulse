@@ -1,6 +1,6 @@
+import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import type { MouseEvent } from "react";
 import { IconHome, IconPause, IconPlay, IconSwitch, IconTag } from "./components/icons";
 import { useElapsedSeconds } from "./lib/events";
 import { formatElapsed } from "./lib/format";
@@ -9,7 +9,8 @@ import { openHomeWindow, pauseTracking, resumeTracking } from "./lib/tauri";
 import { ActivityPicker } from "./widget/ActivityPicker";
 import { ProjectPicker } from "./widget/ProjectPicker";
 import { useHoverExpand, useHoverIntent } from "./widget/useHoverExpand";
-import { clampToScreen, dockToSavedCorner, saveCurrentCornerFromPosition } from "./widget/widgetPosition";
+import type { WidgetHoverState } from "./widget/useHoverExpand";
+import { clampToScreen, dockToSavedCorner } from "./widget/widgetPosition";
 
 const COLLAPSED_HEIGHT = 48;
 const MIN_COLLAPSED_WIDTH = 90;
@@ -26,18 +27,12 @@ export function App() {
   const state = useTrackingState();
   const elapsed = useElapsedSeconds(state?.segmentStartedAt, state?.isPaused ?? false);
   const [openPicker, setOpenPicker] = useState<OpenPicker>(null);
-  const [isHovered, setIsHovered] = useState(false);
+  const [hoverState, setHoverState] = useState<WidgetHoverState>("idle");
   const [isDocked, setIsDocked] = useState(false);
   const [collapsedWidth, setCollapsedWidth] = useState(MIN_COLLAPSED_WIDTH);
   const [nameWidth, setNameWidth] = useState<number | undefined>(undefined);
   const measureNameRef = useRef<HTMLElement>(null);
-  const measureTimeRef = useRef<HTMLElement>(null);
-  const moveSaveTimer = useRef<number | null>(null);
-  // Only a real user drag (via startDragging) should ever persist a new
-  // corner — our own hover-expand resizes also move the window, and trying
-  // to retroactively "suppress" those after the fact is a losing race
-  // against when the moved event actually arrives.
-  const isUserDraggingRef = useRef(false);
+  const measureTimeRef = useRef<HTMLTimeElement>(null);
 
   const isPaused = state?.isPaused ?? false;
   const projectName = state?.project?.name ?? "Nessun progetto rilevato";
@@ -92,10 +87,24 @@ export function App() {
     () => ({ width: collapsedWidth, height: COLLAPSED_HEIGHT }),
     [collapsedWidth],
   );
-  const targetSize = openPicker ? PICKER_SIZE : isHovered ? EXPANDED_SIZE : collapsedSize;
-  const isExpanded = isHovered || openPicker !== null;
+  // Ctrl+hover ("expand") or an open picker bring the widget to full
+  // visibility/interactivity; plain hover ("fade") does the opposite — see
+  // the isFaded effect below.
+  const isExpanded = openPicker !== null || hoverState === "expand";
+  const isFaded = openPicker === null && hoverState === "fade";
+  const targetSize = openPicker ? PICKER_SIZE : isExpanded ? EXPANDED_SIZE : collapsedSize;
   useHoverExpand(targetSize, isDocked);
-  useHoverIntent(setIsHovered);
+  useHoverIntent(setHoverState);
+
+  // The widget is always-on-top, so without this it would sit in front of
+  // whatever the user is trying to click underneath it (a window's own
+  // close button, a menu, ...) every time the cursor happens to pass over
+  // it. Fully hiding it AND letting clicks fall through to the window below
+  // is what makes that non-disruptive — CSS opacity alone would still eat
+  // the click.
+  useEffect(() => {
+    void getCurrentWindow().setIgnoreCursorEvents(isFaded);
+  }, [isFaded]);
 
   // Initial corner-docking must land before useHoverExpand starts computing
   // anchors from the window's current position — otherwise whichever effect
@@ -116,76 +125,20 @@ export function App() {
     };
   }, []);
 
+  // The widget's position is fixed and only changeable from the Home
+  // window's settings now (no more free dragging) — this is what makes a
+  // corner change picked there take effect immediately instead of only on
+  // the widget's next launch.
   useEffect(() => {
-    if (!isDocked) {
-      return;
-    }
-
-    let unlisten: (() => void) | undefined;
-    let cancelled = false;
-
-    getCurrentWindow()
-      .onMoved(() => {
-        if (!isUserDraggingRef.current) {
-          return;
-        }
-        if (moveSaveTimer.current !== null) {
-          window.clearTimeout(moveSaveTimer.current);
-        }
-        moveSaveTimer.current = window.setTimeout(() => {
-          void saveCurrentCornerFromPosition();
-        }, 300);
-      })
-      .then((fn) => {
-        if (cancelled) {
-          fn();
-          return;
-        }
-        unlisten = fn;
-      });
-
+    const unlistenPromise = listen("widget-corner-changed", () => {
+      void dockToSavedCorner(collapsedSize.width, collapsedSize.height).then(() =>
+        clampToScreen(),
+      );
+    });
     return () => {
-      cancelled = true;
-      unlisten?.();
-      if (moveSaveTimer.current !== null) {
-        window.clearTimeout(moveSaveTimer.current);
-      }
+      void unlistenPromise.then((unlisten) => unlisten());
     };
-  }, [isDocked]);
-
-  async function startDrag(event: MouseEvent<HTMLElement>) {
-    if (event.button !== 0) {
-      return;
-    }
-
-    // Excludes buttons and the scrollable project/activity picker (whose
-    // native scrollbar thumb would otherwise be hijacked into a window drag
-    // instead of scrolling the list).
-    if (event.target instanceof Element && event.target.closest("button, .picker")) {
-      return;
-    }
-
-    event.preventDefault();
-    isUserDraggingRef.current = true;
-    try {
-      // Resolves only once the native drag-move loop ends (mouse released),
-      // so the flag stays true for exactly the moves that loop produces.
-      await getCurrentWindow().startDragging();
-    } catch (error) {
-      console.error("Unable to start window drag", error);
-    } finally {
-      isUserDraggingRef.current = false;
-      // Supersedes the debounced onMoved save below with a definitive one
-      // that reflects the post-clamp position, so a drag that lands off-
-      // screen doesn't get its stale (off-screen) corner persisted.
-      if (moveSaveTimer.current !== null) {
-        window.clearTimeout(moveSaveTimer.current);
-        moveSaveTimer.current = null;
-      }
-      await clampToScreen();
-      await saveCurrentCornerFromPosition();
-    }
-  }
+  }, [collapsedSize.width, collapsedSize.height]);
 
   function togglePause() {
     void (state?.isPaused ? resumeTracking() : pauseTracking());
@@ -194,11 +147,7 @@ export function App() {
   const elapsedLabel = useMemo(() => formatElapsed(elapsed), [elapsed]);
 
   return (
-    <main
-      className={isExpanded ? "widget expanded" : "widget"}
-      data-tauri-drag-region
-      onMouseDown={startDrag}
-    >
+    <main className={`widget${isExpanded ? " expanded" : ""}${isFaded ? " faded" : ""}`}>
       <div
         aria-hidden="true"
         style={{ position: "absolute", visibility: "hidden", pointerEvents: "none", whiteSpace: "nowrap" }}
@@ -207,33 +156,22 @@ export function App() {
         {hasTimer && <time ref={measureTimeRef}>00:00:00</time>}
       </div>
 
-      <section className={isExpanded ? "drag-zone expanded" : "drag-zone"} data-tauri-drag-region>
+      <section className={isExpanded ? "drag-zone expanded" : "drag-zone"}>
         {isExpanded ? (
-          <div className="label-row" data-tauri-drag-region>
-            <div className="label-left" data-tauri-drag-region>
-              <div
-                className={isPaused ? "status-dot paused" : "status-dot"}
-                data-tauri-drag-region
-              />
-              <span className="label" data-tauri-drag-region>
+          <div className="label-row">
+            <div className="label-left">
+              <div className={isPaused ? "status-dot paused" : "status-dot"} />
+              <span className="label">
                 {isPaused ? "In pausa" : state?.source === "manual" ? "Manuale" : "Automatico"}
               </span>
             </div>
-            {hasTimer && <time data-tauri-drag-region>{elapsedLabel}</time>}
+            {hasTimer && <time>{elapsedLabel}</time>}
           </div>
         ) : (
-          <div
-            className={isPaused ? "status-dot paused" : "status-dot"}
-            data-tauri-drag-region
-          />
+          <div className={isPaused ? "status-dot paused" : "status-dot"} />
         )}
-        <div
-          className={isExpanded ? "project-name-row flush" : "project-name-row"}
-          data-tauri-drag-region
-        >
-          <strong style={{ width: nameWidth }} data-tauri-drag-region>
-            {projectName}
-          </strong>
+        <div className={isExpanded ? "project-name-row flush" : "project-name-row"}>
+          <strong style={{ width: nameWidth }}>{projectName}</strong>
           {isExpanded && (
             <button
               type="button"
@@ -245,7 +183,7 @@ export function App() {
             </button>
           )}
         </div>
-        {!isExpanded && hasTimer && <time data-tauri-drag-region>{elapsedLabel}</time>}
+        {!isExpanded && hasTimer && <time>{elapsedLabel}</time>}
       </section>
 
       {isExpanded && (

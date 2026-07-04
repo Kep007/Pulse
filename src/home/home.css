@@ -98,6 +98,34 @@
   color: #b42318;
 }
 
+.corner-picker {
+  flex-shrink: 0;
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 6px;
+}
+
+.corner-option {
+  border: 1px solid #d0d5dd;
+  border-radius: 8px;
+  padding: 8px 14px;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  background: #f8fafc;
+  color: #172033;
+}
+
+.corner-option:hover {
+  background: #eef2f7;
+}
+
+.corner-option.active {
+  border-color: #2563eb;
+  background: #2563eb;
+  color: #ffffff;
+}
+
 .shortcut-input {
   flex-shrink: 0;
   width: 180px;
@@ -375,8 +403,35 @@
   color: #172033;
 }
 
+.project-row {
+  will-change: transform;
+}
+
 .project-row.dragging {
-  opacity: 0.4;
+  position: relative;
+  z-index: 5;
+}
+
+.project-row.dragging td {
+  background: #ffffff;
+  box-shadow:
+    0 12px 24px -4px rgba(16, 24, 40, 0.18),
+    0 4px 8px -2px rgba(16, 24, 40, 0.1);
+}
+
+.project-row.dragging td:first-child {
+  border-top-left-radius: 8px;
+  border-bottom-left-radius: 8px;
+}
+
+.project-row.dragging td:last-child {
+  border-top-right-radius: 8px;
+  border-bottom-right-radius: 8px;
+}
+
+.projects-view.dragging-active,
+.projects-view.dragging-active * {
+  cursor: grabbing !important;
 }
 
 .drag-handle {
@@ -385,6 +440,10 @@
   cursor: grab;
   touch-action: none;
   user-select: none;
+}
+
+.drag-handle:hover {
+  color: #667085;
 }
 
 .project-name-cell {

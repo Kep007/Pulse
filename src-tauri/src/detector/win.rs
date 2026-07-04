@@ -2,6 +2,7 @@ use windows::Win32::Foundation::{CloseHandle, HWND};
 use windows::Win32::System::Threading::{
     OpenProcess, QueryFullProcessImageNameW, PROCESS_NAME_WIN32, PROCESS_QUERY_LIMITED_INFORMATION,
 };
+use windows::Win32::UI::Input::KeyboardAndMouse::{GetAsyncKeyState, VK_CONTROL};
 use windows::Win32::UI::WindowsAndMessaging::{
     GetForegroundWindow, GetWindowTextW, GetWindowThreadProcessId,
 };
@@ -65,6 +66,14 @@ unsafe fn read_process_exe_path(pid: u32) -> Option<String> {
     query_result.ok()?;
 
     Some(String::from_utf16_lossy(&buffer[..size as usize]))
+}
+
+/// Checks the live key state directly rather than relying on DOM keyboard
+/// events, which never reach the widget while it's click-through (or simply
+/// unfocused, which an always-on-top utility window usually is) — this
+/// works regardless of which window currently has focus.
+pub fn is_ctrl_pressed() -> bool {
+    unsafe { (GetAsyncKeyState(VK_CONTROL.0 as i32) as u16 & 0x8000) != 0 }
 }
 
 fn process_name_from_path(exe_path: &str) -> String {
