@@ -9,7 +9,7 @@ import { openHomeWindow, pauseTracking, resumeTracking } from "./lib/tauri";
 import { ActivityPicker } from "./widget/ActivityPicker";
 import { ProjectPicker } from "./widget/ProjectPicker";
 import { useHoverExpand, useHoverIntent } from "./widget/useHoverExpand";
-import { dockToSavedCorner, saveCurrentCornerFromPosition } from "./widget/widgetPosition";
+import { clampToScreen, dockToSavedCorner, saveCurrentCornerFromPosition } from "./widget/widgetPosition";
 
 const COLLAPSED_HEIGHT = 40;
 const MIN_COLLAPSED_WIDTH = 150;
@@ -75,6 +75,7 @@ export function App() {
   useEffect(() => {
     let cancelled = false;
     dockToSavedCorner(MIN_COLLAPSED_WIDTH, COLLAPSED_HEIGHT)
+      .then(() => clampToScreen())
       .catch((error) => console.error("Unable to dock widget to corner", error))
       .finally(() => {
         if (!cancelled) {
@@ -145,6 +146,15 @@ export function App() {
       console.error("Unable to start window drag", error);
     } finally {
       isUserDraggingRef.current = false;
+      // Supersedes the debounced onMoved save below with a definitive one
+      // that reflects the post-clamp position, so a drag that lands off-
+      // screen doesn't get its stale (off-screen) corner persisted.
+      if (moveSaveTimer.current !== null) {
+        window.clearTimeout(moveSaveTimer.current);
+        moveSaveTimer.current = null;
+      }
+      await clampToScreen();
+      await saveCurrentCornerFromPosition();
     }
   }
 
