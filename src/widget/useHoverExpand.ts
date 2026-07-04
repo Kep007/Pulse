@@ -125,12 +125,21 @@ export function useHoverIntent(onChange: (state: WidgetHoverState) => void) {
             stateRef.current = nextState;
             onChange(nextState);
           }
-        } else if (stateRef.current !== "idle" && collapseTimer.current === null) {
-          collapseTimer.current = window.setTimeout(() => {
-            collapseTimer.current = null;
-            stateRef.current = "idle";
-            onChange("idle");
-          }, COLLAPSE_GRACE_MS);
+        } else if (stateRef.current === "expand") {
+          // Only the expand path (Ctrl+hover) gets a grace window, to avoid
+          // flicker on a quick glance. "fade" has no such concern — nothing
+          // is being obstructed once the cursor actually leaves, so there's
+          // no reason to keep it invisible a moment longer than that.
+          if (collapseTimer.current === null) {
+            collapseTimer.current = window.setTimeout(() => {
+              collapseTimer.current = null;
+              stateRef.current = "idle";
+              onChange("idle");
+            }, COLLAPSE_GRACE_MS);
+          }
+        } else if (stateRef.current !== "idle") {
+          stateRef.current = "idle";
+          onChange("idle");
         }
       } catch (error) {
         console.error("Unable to poll cursor position", error);

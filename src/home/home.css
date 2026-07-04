@@ -403,10 +403,6 @@
   color: #172033;
 }
 
-.project-row {
-  will-change: transform;
-}
-
 .project-row.dragging {
   position: relative;
   z-index: 5;
@@ -414,19 +410,7 @@
 
 .project-row.dragging td {
   background: #ffffff;
-  box-shadow:
-    0 12px 24px -4px rgba(16, 24, 40, 0.18),
-    0 4px 8px -2px rgba(16, 24, 40, 0.1);
-}
-
-.project-row.dragging td:first-child {
-  border-top-left-radius: 8px;
-  border-bottom-left-radius: 8px;
-}
-
-.project-row.dragging td:last-child {
-  border-top-right-radius: 8px;
-  border-bottom-right-radius: 8px;
+  border-bottom-color: transparent;
 }
 
 .projects-view.dragging-active,
@@ -494,7 +478,6 @@
   gap: 8px;
   margin-top: 14px;
   padding-top: 14px;
-  border-top: 1px solid #eef2f7;
 }
 
 .add-project-row input[type="text"] {

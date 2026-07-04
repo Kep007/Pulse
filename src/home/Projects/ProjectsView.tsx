@@ -12,6 +12,13 @@ import type { ProjectDto } from "../../lib/types";
 
 const REFLOW_TRANSITION = "transform 180ms ease";
 
+type DragState = {
+  id: number;
+  startIndex: number;
+  startY: number;
+  rowHeight: number;
+};
+
 export function ProjectsView() {
   const [projects, setProjects] = useState<ProjectDto[]>([]);
   const [newName, setNewName] = useState("");
@@ -20,11 +27,16 @@ export function ProjectsView() {
   const [archiveTarget, setArchiveTarget] = useState<ProjectDto | null>(null);
   const [draggingId, setDraggingId] = useState<number | null>(null);
   const rowRefs = useRef(new Map<number, HTMLTableRowElement>());
+  const projectsRef = useRef<ProjectDto[]>([]);
+  const dragRef = useRef<DragState | null>(null);
   // Rects captured just before a reorder, so the layout effect below can
   // measure how far each row actually jumped and animate away that jump —
   // the classic FLIP technique (First, Last, Invert, Play).
   const preReorderRects = useRef(new Map<number, DOMRect>());
-  const lastPointerY = useRef(0);
+
+  useEffect(() => {
+    projectsRef.current = projects;
+  }, [projects]);
 
   useEffect(() => {
     void refresh();
@@ -79,33 +91,10 @@ export function ProjectsView() {
     }
   }
 
-  function captureRects() {
-    const rects = new Map<number, DOMRect>();
-    for (const [id, row] of rowRefs.current) {
-      rects.set(id, row.getBoundingClientRect());
-    }
-    preReorderRects.current = rects;
-  }
-
-  // Keeps the row glued to the cursor by re-measuring its own current
-  // layout slot every time, rather than tracking distance travelled since
-  // pointerdown — that would drift out of sync the moment a reorder moves
-  // the row to a different slot underneath the still-held pointer.
-  function followPointer(draggedId: number, clientY: number) {
-    const row = rowRefs.current.get(draggedId);
-    if (!row) {
-      return;
-    }
-    const rect = row.getBoundingClientRect();
-    const offset = clientY - (rect.top + rect.height / 2);
-    row.style.transition = "none";
-    row.style.transform = `translateY(${offset}px) scale(1.02)`;
-  }
-
   // Applies the FLIP animation to every row except the dragged one (which
-  // is being actively driven by followPointer instead): each row jumped
-  // straight to its new slot when React re-rendered, so this offsets it
-  // right back to where it visually was, then releases the offset on the
+  // is driven directly by the pointer move handler instead): each row
+  // jumped straight to its new slot when React re-rendered, so this offsets
+  // it right back to where it visually was, then releases the offset on the
   // next frame with a transition — reading as a smooth slide into place
   // rather than a snap.
   useLayoutEffect(() => {
@@ -116,7 +105,7 @@ export function ProjectsView() {
     preReorderRects.current = new Map();
 
     for (const [id, row] of rowRefs.current) {
-      if (id === draggingId) {
+      if (id === dragRef.current?.id) {
         continue;
       }
       const prevRect = prevRects.get(id);
@@ -135,67 +124,100 @@ export function ProjectsView() {
         row.style.transform = "";
       });
     }
-
-    if (draggingId !== null) {
-      followPointer(draggingId, lastPointerY.current);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projects]);
 
-  function handlePointerDown(event: PointerEvent<HTMLTableCellElement>, projectId: number) {
+  // Pointer listeners live on window (added on pointerdown, removed on
+  // pointerup) rather than on the handle element itself — the standard
+  // pattern for pointer-driven dragging, since it keeps working regardless
+  // of the element being dragged getting reordered in the DOM mid-drag.
+  //
+  // The dragged row's target position is computed from the cumulative
+  // pixel distance travelled since pointerdown, divided by a fixed row
+  // height, rather than by comparing live getBoundingClientRect() reads
+  // against other rows: those reads include the FLIP animation's own
+  // in-flight transform, so mid-animation they report a row's transiently
+  // *animating* position rather than its true layout slot — which was
+  // making the drag miscompute what it was hovering over. Pure arithmetic
+  // against the fixed starting point sidesteps that entirely.
+  function handlePointerDown(
+    event: PointerEvent<HTMLTableCellElement>,
+    projectId: number,
+    index: number,
+  ) {
     event.preventDefault();
+    const row = rowRefs.current.get(projectId);
+    const rowHeight = row?.getBoundingClientRect().height ?? 0;
+    dragRef.current = { id: projectId, startIndex: index, startY: event.clientY, rowHeight };
     setDraggingId(projectId);
-    lastPointerY.current = event.clientY;
-    event.currentTarget.setPointerCapture(event.pointerId);
-  }
 
-  function handlePointerMove(event: PointerEvent<HTMLTableCellElement>) {
-    if (draggingId === null) {
-      return;
-    }
-    lastPointerY.current = event.clientY;
-    followPointer(draggingId, event.clientY);
+    function handlePointerMove(moveEvent: globalThis.PointerEvent) {
+      const drag = dragRef.current;
+      if (!drag) {
+        return;
+      }
 
-    let overId: number | null = null;
-    for (const [id, row] of rowRefs.current) {
-      if (id === draggingId) {
-        continue;
-      }
-      const rect = row.getBoundingClientRect();
-      if (event.clientY >= rect.top && event.clientY <= rect.bottom) {
-        overId = id;
-        break;
-      }
-    }
-    if (overId === null) {
-      return;
-    }
-    captureRects();
-    setProjects((current) => {
-      const from = current.findIndex((project) => project.id === draggingId);
-      const to = current.findIndex((project) => project.id === overId);
-      if (from === -1 || to === -1) {
-        return current;
-      }
-      const next = current.slice();
-      const [moved] = next.splice(from, 1);
-      next.splice(to, 0, moved);
-      return next;
-    });
-  }
+      const deltaY = moveEvent.clientY - drag.startY;
 
-  async function handlePointerUp() {
-    if (draggingId === null) {
-      return;
+      if (drag.rowHeight > 0) {
+        const targetIndex = Math.min(
+          Math.max(drag.startIndex + Math.round(deltaY / drag.rowHeight), 0),
+          projectsRef.current.length - 1,
+        );
+
+        setProjects((current) => {
+          const currentIndex = current.findIndex((project) => project.id === drag.id);
+          if (currentIndex === -1 || currentIndex === targetIndex) {
+            return current;
+          }
+          const rects = new Map<number, DOMRect>();
+          for (const [id, row] of rowRefs.current) {
+            rects.set(id, row.getBoundingClientRect());
+          }
+          preReorderRects.current = rects;
+
+          const next = current.slice();
+          const [moved] = next.splice(currentIndex, 1);
+          next.splice(targetIndex, 0, moved);
+          return next;
+        });
+
+        // The row's own DOM slot just shifted by (targetIndex - startIndex)
+        // row heights because of the splice above — without subtracting
+        // that back out, the transform would stack on top of the slot's own
+        // move instead of replacing it, making the row run away from the
+        // cursor at roughly double speed after every reorder. targetIndex
+        // is used here (not a value read back from state) so this stays
+        // exactly in sync even though the splice above hasn't rendered yet.
+        const indexShift = targetIndex - drag.startIndex;
+        const draggedRow = rowRefs.current.get(drag.id);
+        if (draggedRow) {
+          draggedRow.style.transition = "none";
+          draggedRow.style.transform = `translateY(${deltaY - indexShift * drag.rowHeight}px)`;
+        }
+      }
     }
-    const row = rowRefs.current.get(draggingId);
-    if (row) {
-      row.style.transition = REFLOW_TRANSITION;
-      row.style.transform = "";
+
+    function handlePointerUp() {
+      window.removeEventListener("pointermove", handlePointerMove);
+      window.removeEventListener("pointerup", handlePointerUp);
+
+      const drag = dragRef.current;
+      dragRef.current = null;
+      setDraggingId(null);
+      if (!drag) {
+        return;
+      }
+
+      const draggedRow = rowRefs.current.get(drag.id);
+      if (draggedRow) {
+        draggedRow.style.transition = REFLOW_TRANSITION;
+        draggedRow.style.transform = "";
+      }
+      void reorderProjects(projectsRef.current.map((project) => project.id));
     }
-    const orderedIds = projects.map((project) => project.id);
-    setDraggingId(null);
-    await reorderProjects(orderedIds);
+
+    window.addEventListener("pointermove", handlePointerMove);
+    window.addEventListener("pointerup", handlePointerUp);
   }
 
   return (
@@ -204,7 +226,7 @@ export function ProjectsView() {
         <h2>Progetti</h2>
         <table className="projects-table">
           <tbody>
-            {projects.map((project) => (
+            {projects.map((project, index) => (
               <tr
                 key={project.id}
                 ref={(el) => {
@@ -219,9 +241,7 @@ export function ProjectsView() {
                 <td
                   className="drag-handle"
                   title="Trascina per riordinare"
-                  onPointerDown={(event) => handlePointerDown(event, project.id)}
-                  onPointerMove={handlePointerMove}
-                  onPointerUp={() => void handlePointerUp()}
+                  onPointerDown={(event) => handlePointerDown(event, project.id, index)}
                 >
                   ⠿
                 </td>

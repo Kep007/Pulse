@@ -49,9 +49,11 @@ button {
 /* Instant, not transitioned: this is a hide-from-the-cursor mechanism (see
    the isFaded effect in App.tsx, which pairs it with click-through) rather
    than a decorative fade, so it needs to disappear the moment the cursor
-   lands on it, not a moment later. */
+   lands on it, not a moment later. Kept faintly visible (not 0) so the
+   widget doesn't vanish without a trace — the user still sees roughly
+   where it is, and that hovering it is what made it go transparent. */
 .widget.faded {
-  opacity: 0;
+  opacity: 0.15;
 }
 
 .widget.expanded {

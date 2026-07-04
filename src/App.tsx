@@ -18,7 +18,19 @@ const MAX_COLLAPSED_WIDTH = 300;
 const WIDGET_PADDING = 7;
 const SWITCH_ICON_SIZE = 18;
 
-const EXPANDED_SIZE = { width: MAX_COLLAPSED_WIDTH, height: 132 };
+const EXPANDED_HEIGHT = 132;
+const EXPANDED_MIN_WIDTH = MAX_COLLAPSED_WIDTH;
+const EXPANDED_MAX_WIDTH = 420;
+const EXPANDED_PADDING = 12;
+const INLINE_SWITCH_WIDTH = 24;
+const NAME_ROW_GAP = 4;
+// Project names are short by convention (enforced when naming them in the
+// Projects tab), so the window only ever needs to grow up to this many
+// characters' worth of width — anything longer (including the "no project
+// detected" fallback message, which runs well past this on its own) gets
+// ellipsized instead of pushing the pill wider indefinitely.
+const MAX_NAME_CHARS = 20;
+
 const PICKER_SIZE = { width: MAX_COLLAPSED_WIDTH, height: 320 };
 
 type OpenPicker = "project" | "activity" | null;
@@ -30,12 +42,17 @@ export function App() {
   const [hoverState, setHoverState] = useState<WidgetHoverState>("idle");
   const [isDocked, setIsDocked] = useState(false);
   const [collapsedWidth, setCollapsedWidth] = useState(MIN_COLLAPSED_WIDTH);
+  const [expandedWidth, setExpandedWidth] = useState(EXPANDED_MIN_WIDTH);
   const [nameWidth, setNameWidth] = useState<number | undefined>(undefined);
   const measureNameRef = useRef<HTMLElement>(null);
   const measureTimeRef = useRef<HTMLTimeElement>(null);
 
   const isPaused = state?.isPaused ?? false;
-  const projectName = state?.project?.name ?? "Nessun progetto rilevato";
+  const rawProjectName = state?.project?.name ?? "Nessun progetto rilevato";
+  const projectName =
+    rawProjectName.length > MAX_NAME_CHARS
+      ? `${rawProjectName.slice(0, MAX_NAME_CHARS)}…`
+      : rawProjectName;
   const activityName = state?.activityType?.name ?? "Nessuna attività";
   const hasTimer = Boolean(state?.project || state?.activityType);
 
@@ -81,8 +98,23 @@ export function App() {
       Math.max(MIN_COLLAPSED_WIDTH, contentWidth + WIDGET_PADDING * 2),
     );
     setCollapsedWidth(next);
+
+    // Expanded mode used to stay at a fixed width regardless of the name,
+    // so a long one (the "Nessun progetto rilevato" fallback is the usual
+    // culprit) had nowhere to go but to run into the switch button and the
+    // corner timer instead of the window making room for it.
+    const expandedContentWidth = nw + NAME_ROW_GAP + INLINE_SWITCH_WIDTH;
+    const nextExpandedWidth = Math.min(
+      EXPANDED_MAX_WIDTH,
+      Math.max(EXPANDED_MIN_WIDTH, expandedContentWidth + EXPANDED_PADDING * 2),
+    );
+    setExpandedWidth(nextExpandedWidth);
   }, [projectName, hasTimer]);
 
+  const expandedSize = useMemo(
+    () => ({ width: expandedWidth, height: EXPANDED_HEIGHT }),
+    [expandedWidth],
+  );
   const collapsedSize = useMemo(
     () => ({ width: collapsedWidth, height: COLLAPSED_HEIGHT }),
     [collapsedWidth],
@@ -92,7 +124,7 @@ export function App() {
   // the isFaded effect below.
   const isExpanded = openPicker !== null || hoverState === "expand";
   const isFaded = openPicker === null && hoverState === "fade";
-  const targetSize = openPicker ? PICKER_SIZE : isExpanded ? EXPANDED_SIZE : collapsedSize;
+  const targetSize = openPicker ? PICKER_SIZE : isExpanded ? expandedSize : collapsedSize;
   useHoverExpand(targetSize, isDocked);
   useHoverIntent(setHoverState);
 
