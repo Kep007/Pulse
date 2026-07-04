@@ -1,9 +1,10 @@
 import { useState } from "react";
 import { DashboardView } from "./Dashboard/DashboardView";
+import { ProjectsView } from "./Projects/ProjectsView";
 import { SettingsView } from "./Settings/SettingsView";
 import "./home.css";
 
-type Tab = "dashboard" | "settings";
+type Tab = "dashboard" | "projects" | "settings";
 
 export function HomeApp() {
   const [tab, setTab] = useState<Tab>("dashboard");
@@ -20,6 +21,13 @@ export function HomeApp() {
         </button>
         <button
           type="button"
+          className={tab === "projects" ? "home-tab active" : "home-tab"}
+          onClick={() => setTab("projects")}
+        >
+          Progetti
+        </button>
+        <button
+          type="button"
           className={tab === "settings" ? "home-tab active" : "home-tab"}
           onClick={() => setTab("settings")}
         >
@@ -27,7 +35,9 @@ export function HomeApp() {
         </button>
       </nav>
       <div className="home-content">
-        {tab === "dashboard" ? <DashboardView /> : <SettingsView />}
+        {tab === "dashboard" && <DashboardView />}
+        {tab === "projects" && <ProjectsView />}
+        {tab === "settings" && <SettingsView />}
       </div>
     </div>
   );

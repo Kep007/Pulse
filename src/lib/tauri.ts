@@ -83,3 +83,19 @@ export function getConfirmShortcut() {
 export function setConfirmShortcut(shortcut: string) {
   return invoke<string>("set_confirm_shortcut", { shortcut });
 }
+
+export function createProject(name: string, color: string | null) {
+  return invoke<ProjectDto>("create_project", { name, color });
+}
+
+export function updateProject(id: number, name: string, color: string | null) {
+  return invoke<void>("update_project", { id, name, color });
+}
+
+export function archiveProject(id: number) {
+  return invoke<void>("archive_project", { id });
+}
+
+export function reorderProjects(orderedIds: number[]) {
+  return invoke<void>("reorder_projects", { orderedIds });
+}

@@ -13,6 +13,10 @@ const MIGRATIONS: &[(&str, &str)] = &[
         "0003_seed_activity",
         include_str!("migrations/0003_seed_activity.sql"),
     ),
+    (
+        "0004_project_sort_order",
+        include_str!("migrations/0004_project_sort_order.sql"),
+    ),
 ];
 
 pub fn open(app: &AppHandle) -> rusqlite::Result<Connection> {
@@ -107,7 +111,7 @@ pub fn activity_rules(conn: &Connection) -> rusqlite::Result<Vec<(i64, String, S
 
 pub fn list_projects(conn: &Connection) -> rusqlite::Result<Vec<ProjectDto>> {
     let mut stmt = conn.prepare(
-        "SELECT id, slug, name, color FROM projects WHERE archived_at IS NULL ORDER BY name",
+        "SELECT id, slug, name, color FROM projects WHERE archived_at IS NULL ORDER BY sort_order",
     )?;
     let rows = stmt
         .query_map([], |row| {
@@ -153,6 +157,102 @@ pub fn get_project(conn: &Connection, id: i64) -> rusqlite::Result<Option<Projec
         },
     )
     .optional()
+}
+
+fn slugify(name: &str) -> String {
+    let mut slug = String::new();
+    let mut last_dash = false;
+    for ch in name.chars() {
+        if ch.is_ascii_alphanumeric() {
+            slug.push(ch.to_ascii_lowercase());
+            last_dash = false;
+        } else if !last_dash && !slug.is_empty() {
+            slug.push('-');
+            last_dash = true;
+        }
+    }
+    while slug.ends_with('-') {
+        slug.pop();
+    }
+    if slug.is_empty() {
+        slug.push_str("project");
+    }
+    slug
+}
+
+fn unique_slug(conn: &Connection, base: &str) -> rusqlite::Result<String> {
+    let mut candidate = base.to_string();
+    let mut suffix = 2;
+    loop {
+        let exists: bool = conn.query_row(
+            "SELECT EXISTS(SELECT 1 FROM projects WHERE slug = ?1)",
+            [&candidate],
+            |row| row.get(0),
+        )?;
+        if !exists {
+            return Ok(candidate);
+        }
+        candidate = format!("{base}-{suffix}");
+        suffix += 1;
+    }
+}
+
+pub fn create_project(
+    conn: &Connection,
+    name: &str,
+    color: Option<&str>,
+) -> rusqlite::Result<ProjectDto> {
+    let slug = unique_slug(conn, &slugify(name))?;
+    let next_order: i64 = conn.query_row(
+        "SELECT COALESCE(MAX(sort_order), -1) + 1 FROM projects",
+        [],
+        |row| row.get(0),
+    )?;
+    conn.execute(
+        "INSERT INTO projects (slug, name, color, sort_order) VALUES (?1, ?2, ?3, ?4)",
+        rusqlite::params![slug, name, color, next_order],
+    )?;
+    Ok(ProjectDto {
+        id: conn.last_insert_rowid(),
+        slug,
+        name: name.to_string(),
+        color: color.map(str::to_string),
+    })
+}
+
+pub fn update_project(
+    conn: &Connection,
+    id: i64,
+    name: &str,
+    color: Option<&str>,
+) -> rusqlite::Result<()> {
+    conn.execute(
+        "UPDATE projects SET name = ?1, color = ?2 WHERE id = ?3",
+        rusqlite::params![name, color, id],
+    )?;
+    Ok(())
+}
+
+/// Archives rather than deletes: keeps historical time_entries attributed to
+/// a real project name instead of silently losing that context, while
+/// hiding the project from the picker and management table going forward.
+pub fn archive_project(conn: &Connection, id: i64, at: DateTime<Utc>) -> rusqlite::Result<()> {
+    conn.execute(
+        "UPDATE projects SET archived_at = ?1 WHERE id = ?2",
+        rusqlite::params![at.to_rfc3339(), id],
+    )?;
+    Ok(())
+}
+
+pub fn reorder_projects(conn: &Connection, ordered_ids: &[i64]) -> rusqlite::Result<()> {
+    let tx = conn.unchecked_transaction()?;
+    for (index, id) in ordered_ids.iter().enumerate() {
+        tx.execute(
+            "UPDATE projects SET sort_order = ?1 WHERE id = ?2",
+            rusqlite::params![index as i64, id],
+        )?;
+    }
+    tx.commit()
 }
 
 pub fn get_activity_type(conn: &Connection, id: i64) -> rusqlite::Result<Option<ActivityTypeDto>> {

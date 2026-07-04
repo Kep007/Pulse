@@ -190,6 +190,29 @@ pub fn get_current_state(app: &AppHandle) -> TrackingState {
     build_tracking_state(&conn, &detector)
 }
 
+/// Recompiles the in-memory matcher from the current project/alias/activity
+/// rule catalog — matching itself never touches SQLite, so any project
+/// create/rename/archive would otherwise keep being matched (or not
+/// matched) against stale data until the next app restart.
+pub fn refresh_matcher(app: &AppHandle) -> rusqlite::Result<()> {
+    let state = app.state::<AppState>();
+    let (projects, rules) = {
+        let conn = state.db.lock().unwrap();
+        (db::project_match_terms(&conn)?, db::activity_rules(&conn)?)
+    };
+    let mut matcher = state.matcher.lock().unwrap();
+    *matcher = Matcher::build(&projects, &rules);
+    Ok(())
+}
+
+/// Re-emits the current tracking state so the widget picks up a project
+/// rename/archive immediately, instead of waiting for the next auto-detect
+/// tick or manual action to refresh its display.
+pub fn refresh_state(app: &AppHandle) {
+    let state = get_current_state(app);
+    let _ = app.emit("state-changed", &state);
+}
+
 pub fn set_active_project(app: &AppHandle, project_id: Option<i64>) -> TrackingState {
     let state = app.state::<AppState>();
     let mut detector = state.detector.lock().unwrap();

@@ -62,6 +62,10 @@ pub fn run() {
             commands::stats::get_daily_summary,
             commands::stats::get_monthly_summary,
             commands::stats::get_day_detail,
+            commands::projects::create_project,
+            commands::projects::update_project,
+            commands::projects::archive_project,
+            commands::projects::reorder_projects,
         ])
         .setup(|app| {
             let conn = db::open(app.handle())?;

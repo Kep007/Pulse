@@ -1,6 +1,4 @@
 import { useEffect, useState } from "react";
-import { useElapsedSeconds } from "../../lib/events";
-import { formatElapsed } from "../../lib/format";
 import { getDailySummary, getMonthlySummary } from "../../lib/tauri";
 import { useTrackingState } from "../../lib/TrackingContext";
 import type { BreakdownMetric, DayBucket, MonthBucket } from "../../lib/types";
@@ -17,7 +15,6 @@ function isoDate(date: Date) {
 
 export function DashboardView() {
   const state = useTrackingState();
-  const elapsed = useElapsedSeconds(state?.segmentStartedAt, state?.isPaused ?? false);
   const [metric, setMetric] = useState<BreakdownMetric>("project");
   const [dailyBuckets, setDailyBuckets] = useState<DayBucket[]>([]);
   const [monthlyBuckets, setMonthlyBuckets] = useState<MonthBucket[]>([]);
@@ -41,7 +38,6 @@ export function DashboardView() {
         </span>
         <strong>{state?.project?.name ?? "Nessun progetto rilevato"}</strong>
         <span className="now-activity">{state?.activityType?.name ?? "Nessuna attività"}</span>
-        <time>{formatElapsed(elapsed)}</time>
       </section>
 
       <div className="dashboard-toolbar">
