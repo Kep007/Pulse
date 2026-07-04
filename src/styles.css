@@ -51,6 +51,12 @@ button {
   display: grid;
   grid-template-columns: 8px minmax(0, max-content) auto;
   align-items: center;
+  /* Without an explicit justify-content, an "auto" track absorbs any
+     leftover row width (e.g. when the pill is wider than its content due to
+     MIN_COLLAPSED_WIDTH) by stretching itself rather than the row, leaving
+     dead space after the time and making the left/right padding look
+     uneven. Centering the tracks as a group keeps both sides symmetric. */
+  justify-content: center;
   gap: 8px;
   cursor: move;
   user-select: none;
@@ -147,8 +153,9 @@ time {
 .activity-chip {
   flex-shrink: 0;
   align-self: flex-start;
-  /* .widget's flex gap already contributes 8px; this tops it up to 12px. */
-  margin-top: 4px;
+  /* .widget's flex gap already contributes 8px; this tops it up to 20px so
+     it doesn't read as glued to the project row above it. */
+  margin-top: 12px;
   margin-left: 16px;
   max-width: calc(100% - 16px);
   display: flex;
