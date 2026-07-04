@@ -14,14 +14,8 @@ import { dockToSavedCorner, saveCurrentCornerFromPosition } from "./widget/widge
 const COLLAPSED_HEIGHT = 40;
 const MIN_COLLAPSED_WIDTH = 150;
 const MAX_COLLAPSED_WIDTH = 300;
-// Padding + dot + gaps + inline-switch button, generously rounded up — the
-// project name text is measured separately since it's the only part whose
-// width actually varies. A first attempt at this undercounted the chrome
-// and clipped the trailing button, so this build in a larger safety margin
-// on top of the literal box-model math.
-const BASE_CHROME_WIDTH = 94;
-// Extra allowance for the "00:00:00" timer + its gap when shown.
-const TIMER_CHROME_WIDTH = 60;
+const WIDGET_PADDING = 8;
+const SWITCH_ICON_SIZE = 18;
 
 const EXPANDED_SIZE = { width: MAX_COLLAPSED_WIDTH, height: 112 };
 const PICKER_SIZE = { width: MAX_COLLAPSED_WIDTH, height: 320 };
@@ -35,7 +29,7 @@ export function App() {
   const [isHovered, setIsHovered] = useState(false);
   const [isDocked, setIsDocked] = useState(false);
   const [collapsedWidth, setCollapsedWidth] = useState(MIN_COLLAPSED_WIDTH);
-  const measureRef = useRef<HTMLSpanElement>(null);
+  const measureRowRef = useRef<HTMLElement>(null);
   const moveSaveTimer = useRef<number | null>(null);
   // Only a real user drag (via startDragging) should ever persist a new
   // corner — our own hover-expand resizes also move the window, and trying
@@ -48,15 +42,19 @@ export function App() {
   const activityName = state?.activityType?.name ?? "Nessuna attività";
   const hasTimer = Boolean(state?.project || state?.activityType);
 
-  // Measures the natural (untruncated) width of the project name so the
-  // collapsed pill can shrink/grow to fit it — short names like "GPT"
-  // shouldn't sit in a pill sized for "Nessun progetto rilevato". The
-  // visible text lives in a `1fr` grid track, whose own box never reflects
-  // its natural width, hence the separate hidden measuring span.
+  // Sizes the collapsed pill to fit its content exactly rather than guessing
+  // a chrome-width constant (past attempts at that under- and over-shot,
+  // leaving either a clipped button or dead space in the pill). A hidden
+  // clone of the actual drag-zone row — same classes, so its box model
+  // matches pixel-for-pixel — reports its true natural (max-content) width,
+  // which the real row can't do directly since its grid track is what
+  // shrinks to make ellipsis truncation work.
   useLayoutEffect(() => {
-    const textWidth = measureRef.current?.scrollWidth ?? 0;
-    const chrome = BASE_CHROME_WIDTH + (hasTimer ? TIMER_CHROME_WIDTH : 0);
-    const next = Math.min(MAX_COLLAPSED_WIDTH, Math.max(MIN_COLLAPSED_WIDTH, textWidth + chrome));
+    const rowWidth = measureRowRef.current?.scrollWidth ?? 0;
+    const next = Math.min(
+      MAX_COLLAPSED_WIDTH,
+      Math.max(MIN_COLLAPSED_WIDTH, rowWidth + WIDGET_PADDING * 2),
+    );
     setCollapsedWidth(next);
   }, [projectName, hasTimer]);
 
@@ -162,20 +160,20 @@ export function App() {
       data-tauri-drag-region
       onMouseDown={startDrag}
     >
-      <span
-        ref={measureRef}
-        aria-hidden="true"
-        style={{
-          position: "absolute",
-          visibility: "hidden",
-          whiteSpace: "nowrap",
-          fontSize: 13,
-          fontWeight: 600,
-          pointerEvents: "none",
-        }}
-      >
-        {projectName}
-      </span>
+      <div aria-hidden="true" style={{ position: "absolute", visibility: "hidden", pointerEvents: "none" }}>
+        <section className="drag-zone" ref={measureRowRef}>
+          <div className="status-dot" />
+          <div className="project">
+            <div className="project-name-row">
+              <strong>{projectName}</strong>
+              <button type="button" className="inline-switch" tabIndex={-1}>
+                <IconSwitch size={SWITCH_ICON_SIZE} />
+              </button>
+            </div>
+          </div>
+          {hasTimer && <time>00:00:00</time>}
+        </section>
+      </div>
 
       <section className="drag-zone" data-tauri-drag-region>
         <div
@@ -196,7 +194,7 @@ export function App() {
               title="Cambia progetto"
               onClick={() => setOpenPicker((current) => (current === "project" ? null : "project"))}
             >
-              <IconSwitch size={12} />
+              <IconSwitch size={SWITCH_ICON_SIZE} />
             </button>
           </div>
         </div>

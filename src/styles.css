@@ -103,8 +103,8 @@ strong {
 
 .inline-switch {
   flex-shrink: 0;
-  width: 20px;
-  height: 20px;
+  width: 30px;
+  height: 30px;
   display: grid;
   place-items: center;
   border: 0;
@@ -147,6 +147,8 @@ time {
 .activity-chip {
   flex-shrink: 0;
   align-self: flex-start;
+  /* .widget's flex gap already contributes 8px; this tops it up to 12px. */
+  margin-top: 4px;
   margin-left: 16px;
   max-width: calc(100% - 16px);
   display: flex;
