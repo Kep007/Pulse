@@ -27,6 +27,7 @@ button {
 }
 
 .widget {
+  position: relative;
   width: 100%;
   height: 100%;
   display: flex;
@@ -48,13 +49,15 @@ button {
 
 .widget.expanded {
   border-radius: 14px;
+  padding-left: 12px;
+  padding-right: 12px;
 }
 
 /* Collapsed pill only: less side padding than top/bottom (WIDGET_PADDING in
    App.tsx sizes the window to match — keep the two in sync). */
 .widget:not(.expanded) {
-  padding-left: 3px;
-  padding-right: 3px;
+  padding-left: 7px;
+  padding-right: 7px;
 }
 
 .drag-zone {
@@ -83,9 +86,16 @@ button {
 /* Expanded state has a fixed width (not the collapsed pill's
    content-driven MIN_COLLAPSED_WIDTH), so there's no dead-space case to
    guard against — and centering here would drift the label/name rows away
-   from the activity chip and action buttons below, which are flush left. */
+   from the activity chip and action buttons below, which are flush left.
+   The third column becomes 1fr (instead of the collapsed pill's auto) so
+   the grid always spans the pill's full width — otherwise, with every
+   column sized to its own content, .label-row's "grid-column: 1 / -1"
+   would only span as far as the tracks actually reach, stopping short of
+   the real right edge and leaving its own space-between timer stranded in
+   the middle instead of pinned to the corner. */
 .drag-zone.expanded {
   justify-content: start;
+  grid-template-columns: 8px minmax(0, max-content) 1fr;
 }
 
 /* Extra left inset for the collapsed pill: compensates for the status dot's
@@ -119,7 +129,30 @@ button {
   grid-column: 1 / -1;
   display: flex;
   align-items: center;
+}
+
+.label-left {
+  display: flex;
+  align-items: center;
   gap: 6px;
+}
+
+/* Positioned absolute (relative to .widget, its nearest positioned
+   ancestor) rather than laid out in the label row's own flow: at 32px this
+   is taller than every other row in the pill, and letting it size the row
+   normally pushed the activity chip and buttons below it down toward (or
+   past) the bottom edge whenever a timer appeared — a layout shift the
+   no-timer state never had. Sitting outside the flow means its height
+   can't affect anything else's position. */
+.label-row time {
+  position: absolute;
+  /* Absolutely positioned elements sit relative to their containing
+     block's padding box, ignoring the padding itself — top/right: 0 landed
+     flush against the corner instead of respecting .widget.expanded's own
+     inset (8px top, 12px right), so those exact values are repeated here. */
+  top: 8px;
+  right: 12px;
+  font-size: 32px;
 }
 
 .label {
@@ -144,9 +177,10 @@ button {
 
 strong {
   min-width: 0;
+  flex-shrink: 0;
   overflow: hidden;
   color: #101828;
-  font-size: 13px;
+  font-size: 16px;
   font-weight: 600;
   /* 1.15 clipped descenders (the tail of a "g" or "p") against this
      element's own overflow:hidden — bumped so the line box has room for
@@ -184,7 +218,8 @@ strong {
 time {
   flex-shrink: 0;
   color: #2563eb;
-  font-size: 13px;
+  font-size: 16px;
+  font-weight: 600;
   font-variant-numeric: tabular-nums;
   line-height: 1;
 }

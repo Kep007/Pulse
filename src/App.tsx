@@ -11,13 +11,13 @@ import { ProjectPicker } from "./widget/ProjectPicker";
 import { useHoverExpand, useHoverIntent } from "./widget/useHoverExpand";
 import { clampToScreen, dockToSavedCorner, saveCurrentCornerFromPosition } from "./widget/widgetPosition";
 
-const COLLAPSED_HEIGHT = 40;
+const COLLAPSED_HEIGHT = 48;
 const MIN_COLLAPSED_WIDTH = 90;
 const MAX_COLLAPSED_WIDTH = 300;
-const WIDGET_PADDING = 3;
+const WIDGET_PADDING = 7;
 const SWITCH_ICON_SIZE = 18;
 
-const EXPANDED_SIZE = { width: MAX_COLLAPSED_WIDTH, height: 120 };
+const EXPANDED_SIZE = { width: MAX_COLLAPSED_WIDTH, height: 132 };
 const PICKER_SIZE = { width: MAX_COLLAPSED_WIDTH, height: 320 };
 
 type OpenPicker = "project" | "activity" | null;
@@ -29,7 +29,9 @@ export function App() {
   const [isHovered, setIsHovered] = useState(false);
   const [isDocked, setIsDocked] = useState(false);
   const [collapsedWidth, setCollapsedWidth] = useState(MIN_COLLAPSED_WIDTH);
-  const measureRowRef = useRef<HTMLElement>(null);
+  const [nameWidth, setNameWidth] = useState<number | undefined>(undefined);
+  const measureNameRef = useRef<HTMLElement>(null);
+  const measureTimeRef = useRef<HTMLElement>(null);
   const moveSaveTimer = useRef<number | null>(null);
   // Only a real user drag (via startDragging) should ever persist a new
   // corner — our own hover-expand resizes also move the window, and trying
@@ -44,24 +46,44 @@ export function App() {
 
   // Sizes the collapsed pill to fit its content exactly rather than guessing
   // a chrome-width constant (past attempts at that under- and over-shot,
-  // leaving either a clipped button or dead space in the pill). A hidden
-  // clone of the actual drag-zone row — same classes, so its box model
-  // matches pixel-for-pixel — reports its true natural (max-content) width,
-  // which the real row can't do directly since its grid track is what
-  // shrinks to make ellipsis truncation work.
-  //
-  // getBoundingClientRect (not scrollWidth, which rounds to an integer and
-  // silently drops the fraction) and Math.ceil below matter more than they
-  // look: the row's true width is almost never a whole number, and rounding
-  // it down even by a fraction of a pixel put the real row's grid track a
-  // hair narrower than its content needed — enough for text-overflow:
-  // ellipsis to drop several characters from the project name to render
-  // cleanly, even though the "missing" width was under 1px.
+  // leaving either a clipped button or dead space in the pill). The name and
+  // timer are measured directly via plain hidden clones — not inside a
+  // cloned copy of the drag-zone grid — because the grid's own column
+  // sizing (`minmax(0, max-content)` competing with `justify-content:
+  // center`) turned out to sometimes resolve a track a few pixels narrower
+  // than an isolated measurement of the same content, even with room to
+  // spare. Building the row width additively from these isolated
+  // measurements plus the layout's known fixed pieces (dot, gaps, padding)
+  // sidesteps that grid-sizing ambiguity entirely, and the name element
+  // below gets its measured width applied directly for the same reason: at
+  // its exact natural width, its content can't overflow its own box, so
+  // text-overflow: ellipsis never has anything to trigger on.
   useLayoutEffect(() => {
-    const rowWidth = measureRowRef.current?.getBoundingClientRect().width ?? 0;
+    const DOT_WIDTH = 8;
+    const COLUMN_GAP = 8;
+    const DRAG_ZONE_PADDING_LEFT = 9;
+    const TIME_MARGIN_RIGHT = 8;
+
+    // getBoundingClientRect (not scrollWidth, which rounds to an integer)
+    // and Math.ceil, plus a small fixed margin: this app's WebView2 engine
+    // still renders an explicitly-sized element a couple of pixels narrower
+    // than this same measurement in some cases.
+    const nw = Math.ceil(measureNameRef.current?.getBoundingClientRect().width ?? 0) + 4;
+    setNameWidth(nw);
+
+    const timeWidth = hasTimer
+      ? Math.ceil(measureTimeRef.current?.getBoundingClientRect().width ?? 0)
+      : 0;
+    const contentWidth =
+      DRAG_ZONE_PADDING_LEFT +
+      DOT_WIDTH +
+      COLUMN_GAP +
+      nw +
+      (hasTimer ? COLUMN_GAP + timeWidth + TIME_MARGIN_RIGHT : 0);
+
     const next = Math.min(
       MAX_COLLAPSED_WIDTH,
-      Math.max(MIN_COLLAPSED_WIDTH, Math.ceil(rowWidth + WIDGET_PADDING * 2)),
+      Math.max(MIN_COLLAPSED_WIDTH, contentWidth + WIDGET_PADDING * 2),
     );
     setCollapsedWidth(next);
   }, [projectName, hasTimer]);
@@ -177,26 +199,27 @@ export function App() {
       data-tauri-drag-region
       onMouseDown={startDrag}
     >
-      <div aria-hidden="true" style={{ position: "absolute", visibility: "hidden", pointerEvents: "none" }}>
-        <section className="drag-zone" ref={measureRowRef}>
-          <div className="status-dot" />
-          <div className="project-name-row">
-            <strong>{projectName}</strong>
-          </div>
-          {hasTimer && <time>00:00:00</time>}
-        </section>
+      <div
+        aria-hidden="true"
+        style={{ position: "absolute", visibility: "hidden", pointerEvents: "none", whiteSpace: "nowrap" }}
+      >
+        <strong ref={measureNameRef}>{projectName}</strong>
+        {hasTimer && <time ref={measureTimeRef}>00:00:00</time>}
       </div>
 
       <section className={isExpanded ? "drag-zone expanded" : "drag-zone"} data-tauri-drag-region>
         {isExpanded ? (
           <div className="label-row" data-tauri-drag-region>
-            <div
-              className={isPaused ? "status-dot paused" : "status-dot"}
-              data-tauri-drag-region
-            />
-            <span className="label" data-tauri-drag-region>
-              {isPaused ? "In pausa" : state?.source === "manual" ? "Manuale" : "Automatico"}
-            </span>
+            <div className="label-left" data-tauri-drag-region>
+              <div
+                className={isPaused ? "status-dot paused" : "status-dot"}
+                data-tauri-drag-region
+              />
+              <span className="label" data-tauri-drag-region>
+                {isPaused ? "In pausa" : state?.source === "manual" ? "Manuale" : "Automatico"}
+              </span>
+            </div>
+            {hasTimer && <time data-tauri-drag-region>{elapsedLabel}</time>}
           </div>
         ) : (
           <div
@@ -208,7 +231,9 @@ export function App() {
           className={isExpanded ? "project-name-row flush" : "project-name-row"}
           data-tauri-drag-region
         >
-          <strong data-tauri-drag-region>{projectName}</strong>
+          <strong style={{ width: nameWidth }} data-tauri-drag-region>
+            {projectName}
+          </strong>
           {isExpanded && (
             <button
               type="button"
@@ -220,7 +245,7 @@ export function App() {
             </button>
           )}
         </div>
-        {hasTimer && <time data-tauri-drag-region>{elapsedLabel}</time>}
+        {!isExpanded && hasTimer && <time data-tauri-drag-region>{elapsedLabel}</time>}
       </section>
 
       {isExpanded && (
