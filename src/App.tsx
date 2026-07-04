@@ -17,7 +17,7 @@ const MAX_COLLAPSED_WIDTH = 300;
 const WIDGET_PADDING = 8;
 const SWITCH_ICON_SIZE = 18;
 
-const EXPANDED_SIZE = { width: MAX_COLLAPSED_WIDTH, height: 136 };
+const EXPANDED_SIZE = { width: MAX_COLLAPSED_WIDTH, height: 132 };
 const PICKER_SIZE = { width: MAX_COLLAPSED_WIDTH, height: 320 };
 
 type OpenPicker = "project" | "activity" | null;
@@ -184,16 +184,26 @@ export function App() {
       </div>
 
       <section className="drag-zone" data-tauri-drag-region>
-        {isExpanded && (
-          <span className="label" data-tauri-drag-region>
-            {isPaused ? "In pausa" : state?.source === "manual" ? "Manuale" : "Automatico"}
-          </span>
+        {isExpanded ? (
+          <div className="label-row" data-tauri-drag-region>
+            <div
+              className={isPaused ? "status-dot paused" : "status-dot"}
+              data-tauri-drag-region
+            />
+            <span className="label" data-tauri-drag-region>
+              {isPaused ? "In pausa" : state?.source === "manual" ? "Manuale" : "Automatico"}
+            </span>
+          </div>
+        ) : (
+          <div
+            className={isPaused ? "status-dot paused" : "status-dot"}
+            data-tauri-drag-region
+          />
         )}
         <div
-          className={isPaused ? "status-dot paused" : "status-dot"}
+          className={isExpanded ? "project-name-row flush" : "project-name-row"}
           data-tauri-drag-region
-        />
-        <div className="project-name-row" data-tauri-drag-region>
+        >
           <strong data-tauri-drag-region>{projectName}</strong>
           <button
             type="button"
