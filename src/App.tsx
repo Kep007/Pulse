@@ -17,7 +17,7 @@ const MAX_COLLAPSED_WIDTH = 300;
 const WIDGET_PADDING = 8;
 const SWITCH_ICON_SIZE = 18;
 
-const EXPANDED_SIZE = { width: MAX_COLLAPSED_WIDTH, height: 112 };
+const EXPANDED_SIZE = { width: MAX_COLLAPSED_WIDTH, height: 136 };
 const PICKER_SIZE = { width: MAX_COLLAPSED_WIDTH, height: 320 };
 
 type OpenPicker = "project" | "activity" | null;
@@ -173,40 +173,36 @@ export function App() {
       <div aria-hidden="true" style={{ position: "absolute", visibility: "hidden", pointerEvents: "none" }}>
         <section className="drag-zone" ref={measureRowRef}>
           <div className="status-dot" />
-          <div className="project">
-            <div className="project-name-row">
-              <strong>{projectName}</strong>
-              <button type="button" className="inline-switch" tabIndex={-1}>
-                <IconSwitch size={SWITCH_ICON_SIZE} />
-              </button>
-            </div>
+          <div className="project-name-row">
+            <strong>{projectName}</strong>
+            <button type="button" className="inline-switch" tabIndex={-1}>
+              <IconSwitch size={SWITCH_ICON_SIZE} />
+            </button>
           </div>
           {hasTimer && <time>00:00:00</time>}
         </section>
       </div>
 
       <section className="drag-zone" data-tauri-drag-region>
+        {isExpanded && (
+          <span className="label" data-tauri-drag-region>
+            {isPaused ? "In pausa" : state?.source === "manual" ? "Manuale" : "Automatico"}
+          </span>
+        )}
         <div
           className={isPaused ? "status-dot paused" : "status-dot"}
           data-tauri-drag-region
         />
-        <div className="project" data-tauri-drag-region>
-          {isExpanded && (
-            <span className="label" data-tauri-drag-region>
-              {isPaused ? "In pausa" : state?.source === "manual" ? "Manuale" : "Automatico"}
-            </span>
-          )}
-          <div className="project-name-row" data-tauri-drag-region>
-            <strong data-tauri-drag-region>{projectName}</strong>
-            <button
-              type="button"
-              className="inline-switch"
-              title="Cambia progetto"
-              onClick={() => setOpenPicker((current) => (current === "project" ? null : "project"))}
-            >
-              <IconSwitch size={SWITCH_ICON_SIZE} />
-            </button>
-          </div>
+        <div className="project-name-row" data-tauri-drag-region>
+          <strong data-tauri-drag-region>{projectName}</strong>
+          <button
+            type="button"
+            className="inline-switch"
+            title="Cambia progetto"
+            onClick={() => setOpenPicker((current) => (current === "project" ? null : "project"))}
+          >
+            <IconSwitch size={SWITCH_ICON_SIZE} />
+          </button>
         </div>
         {hasTimer && <time data-tauri-drag-region>{elapsedLabel}</time>}
       </section>

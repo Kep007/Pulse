@@ -47,7 +47,6 @@ button {
 .drag-zone {
   min-width: 0;
   flex-shrink: 0;
-  height: 24px;
   display: grid;
   grid-template-columns: 8px minmax(0, max-content) auto;
   align-items: center;
@@ -57,7 +56,12 @@ button {
      dead space after the time and making the left/right padding look
      uneven. Centering the tracks as a group keeps both sides symmetric. */
   justify-content: center;
-  gap: 8px;
+  /* row-gap separates the label from the dot/name/time line below it;
+     column-gap separates dot/name/time from each other. The dot and time
+     are siblings of project-name-row (not of a wrapper spanning the label
+     too), so they land on the same grid row as the name and stay vertically
+     centered on it — whether or not the label row above is present. */
+  gap: 2px 8px;
   cursor: move;
   user-select: none;
 }
@@ -76,14 +80,8 @@ button {
   box-shadow: 0 0 0 3px rgba(148, 163, 184, 0.18);
 }
 
-.project {
-  min-width: 0;
-  display: grid;
-  gap: 2px;
-  cursor: move;
-}
-
 .label {
+  grid-column: 1 / -1;
   color: #667085;
   font-size: 11px;
   line-height: 1;
@@ -109,8 +107,8 @@ strong {
 
 .inline-switch {
   flex-shrink: 0;
-  width: 30px;
-  height: 30px;
+  width: 24px;
+  height: 24px;
   display: grid;
   place-items: center;
   border: 0;
