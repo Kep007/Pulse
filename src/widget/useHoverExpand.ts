@@ -4,42 +4,39 @@ import { useEffect, useRef } from "react";
 
 const COLLAPSE_GRACE_MS = 400;
 const HOVER_POLL_MS = 150;
-const RESIZE_ANIMATION_MS = 220;
-const RESIZE_FRAME_MS = 16;
 
 export type SizeSpec = { width: number; height: number };
 
-function easeOutCubic(t: number) {
-  return 1 - (1 - t) ** 3;
-}
-
-function lerp(from: number, to: number, t: number) {
-  return from + (to - from) * t;
-}
-
-function wait(ms: number) {
-  return new Promise((resolve) => window.setTimeout(resolve, ms));
-}
-
 /**
- * Animates the widget window to `targetSize` over a short tween — Tauri has
- * no native window-resize animation API, so this steps setSize/setPosition
- * across a handful of frames with an easing curve — while keeping whichever
+ * Resizes the widget window to `targetSize` instantly, keeping whichever
  * screen corner it's docked to visually fixed. Tauri always resizes from the
  * top-left origin, so the anchor edges (whichever half of the monitor the
- * window currently sits in) have to be recomputed once up front and
- * interpolated toward alongside the size, otherwise growing the window
- * would drift away from its corner instead of expanding toward it.
+ * window currently sits in) have to be recomputed each time, otherwise
+ * growing the window would drift away from its corner instead of expanding
+ * toward it.
+ *
+ * No animation: each call awaits a handful of async round trips to the
+ * Tauri backend (outerPosition/outerSize/currentMonitor) before applying.
+ * When targetSize changes again — e.g. the automatic project detector
+ * switching projects — before an in-flight call's round trips resolve, the
+ * stale call would previously still land, sometimes after the newer one,
+ * leaving the window sized for an earlier (often shorter) project name
+ * while the newer, longer name rendered inside it — truncating it and
+ * crowding its trailing padding. The call-id guard below discards any
+ * resize whose request is no longer the latest by the time its data comes
+ * back, so only the most recent target ever actually gets applied.
  */
 export function useHoverExpand(targetSize: SizeSpec, enabled: boolean) {
+  const latestCallId = useRef(0);
+
   useEffect(() => {
     if (!enabled) {
       return;
     }
 
-    let cancelled = false;
+    const callId = ++latestCallId.current;
 
-    async function animateToTarget() {
+    async function applyTarget() {
       const win = getCurrentWindow();
       const scale = await win.scaleFactor();
       const [physicalPosition, physicalSize, monitor] = await Promise.all([
@@ -47,7 +44,7 @@ export function useHoverExpand(targetSize: SizeSpec, enabled: boolean) {
         win.outerSize(),
         currentMonitor(),
       ]);
-      if (cancelled) {
+      if (callId !== latestCallId.current) {
         return;
       }
 
@@ -63,36 +60,13 @@ export function useHoverExpand(targetSize: SizeSpec, enabled: boolean) {
       const endX = anchorRight ? currentRight - targetSize.width : startPosition.x;
       const endY = anchorBottom ? currentBottom - targetSize.height : startPosition.y;
 
-      const steps = Math.max(1, Math.round(RESIZE_ANIMATION_MS / RESIZE_FRAME_MS));
-
-      for (let step = 1; step <= steps; step++) {
-        if (cancelled) {
-          return;
-        }
-
-        const t = easeOutCubic(step / steps);
-        const width = Math.round(lerp(startSize.width, targetSize.width, t));
-        const height = Math.round(lerp(startSize.height, targetSize.height, t));
-        const x = Math.round(lerp(startPosition.x, endX, t));
-        const y = Math.round(lerp(startPosition.y, endY, t));
-
-        await Promise.all([
-          win.setSize(new LogicalSize(width, height)),
-          win.setPosition(new LogicalPosition(x, y)),
-        ]);
-
-        if (step < steps) {
-          await wait(RESIZE_FRAME_MS);
-        }
-      }
+      await Promise.all([
+        win.setSize(new LogicalSize(targetSize.width, targetSize.height)),
+        win.setPosition(new LogicalPosition(endX, endY)),
+      ]);
     }
 
-    animateToTarget().catch((error) => console.error("Unable to resize widget", error));
-
-    return () => {
-      cancelled = true;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    applyTarget().catch((error) => console.error("Unable to resize widget", error));
   }, [targetSize.width, targetSize.height, enabled]);
 }
 

@@ -12,12 +12,12 @@ import { useHoverExpand, useHoverIntent } from "./widget/useHoverExpand";
 import { clampToScreen, dockToSavedCorner, saveCurrentCornerFromPosition } from "./widget/widgetPosition";
 
 const COLLAPSED_HEIGHT = 40;
-const MIN_COLLAPSED_WIDTH = 150;
+const MIN_COLLAPSED_WIDTH = 90;
 const MAX_COLLAPSED_WIDTH = 300;
-const WIDGET_PADDING = 8;
+const WIDGET_PADDING = 3;
 const SWITCH_ICON_SIZE = 18;
 
-const EXPANDED_SIZE = { width: MAX_COLLAPSED_WIDTH, height: 112 };
+const EXPANDED_SIZE = { width: MAX_COLLAPSED_WIDTH, height: 120 };
 const PICKER_SIZE = { width: MAX_COLLAPSED_WIDTH, height: 320 };
 
 type OpenPicker = "project" | "activity" | null;
@@ -49,11 +49,19 @@ export function App() {
   // matches pixel-for-pixel — reports its true natural (max-content) width,
   // which the real row can't do directly since its grid track is what
   // shrinks to make ellipsis truncation work.
+  //
+  // getBoundingClientRect (not scrollWidth, which rounds to an integer and
+  // silently drops the fraction) and Math.ceil below matter more than they
+  // look: the row's true width is almost never a whole number, and rounding
+  // it down even by a fraction of a pixel put the real row's grid track a
+  // hair narrower than its content needed — enough for text-overflow:
+  // ellipsis to drop several characters from the project name to render
+  // cleanly, even though the "missing" width was under 1px.
   useLayoutEffect(() => {
-    const rowWidth = measureRowRef.current?.scrollWidth ?? 0;
+    const rowWidth = measureRowRef.current?.getBoundingClientRect().width ?? 0;
     const next = Math.min(
       MAX_COLLAPSED_WIDTH,
-      Math.max(MIN_COLLAPSED_WIDTH, rowWidth + WIDGET_PADDING * 2),
+      Math.max(MIN_COLLAPSED_WIDTH, Math.ceil(rowWidth + WIDGET_PADDING * 2)),
     );
     setCollapsedWidth(next);
   }, [projectName, hasTimer]);
@@ -63,10 +71,9 @@ export function App() {
     [collapsedWidth],
   );
   const targetSize = openPicker ? PICKER_SIZE : isHovered ? EXPANDED_SIZE : collapsedSize;
+  const isExpanded = isHovered || openPicker !== null;
   useHoverExpand(targetSize, isDocked);
   useHoverIntent(setIsHovered);
-
-  const isExpanded = isHovered || openPicker !== null;
 
   // Initial corner-docking must land before useHoverExpand starts computing
   // anchors from the window's current position — otherwise whichever effect
@@ -173,31 +180,36 @@ export function App() {
       <div aria-hidden="true" style={{ position: "absolute", visibility: "hidden", pointerEvents: "none" }}>
         <section className="drag-zone" ref={measureRowRef}>
           <div className="status-dot" />
-          <div className="project">
-            <div className="project-name-row">
-              <strong>{projectName}</strong>
-              <button type="button" className="inline-switch" tabIndex={-1}>
-                <IconSwitch size={SWITCH_ICON_SIZE} />
-              </button>
-            </div>
+          <div className="project-name-row">
+            <strong>{projectName}</strong>
           </div>
           {hasTimer && <time>00:00:00</time>}
         </section>
       </div>
 
-      <section className="drag-zone" data-tauri-drag-region>
-        <div
-          className={isPaused ? "status-dot paused" : "status-dot"}
-          data-tauri-drag-region
-        />
-        <div className="project" data-tauri-drag-region>
-          {isExpanded && (
+      <section className={isExpanded ? "drag-zone expanded" : "drag-zone"} data-tauri-drag-region>
+        {isExpanded ? (
+          <div className="label-row" data-tauri-drag-region>
+            <div
+              className={isPaused ? "status-dot paused" : "status-dot"}
+              data-tauri-drag-region
+            />
             <span className="label" data-tauri-drag-region>
               {isPaused ? "In pausa" : state?.source === "manual" ? "Manuale" : "Automatico"}
             </span>
-          )}
-          <div className="project-name-row" data-tauri-drag-region>
-            <strong data-tauri-drag-region>{projectName}</strong>
+          </div>
+        ) : (
+          <div
+            className={isPaused ? "status-dot paused" : "status-dot"}
+            data-tauri-drag-region
+          />
+        )}
+        <div
+          className={isExpanded ? "project-name-row flush" : "project-name-row"}
+          data-tauri-drag-region
+        >
+          <strong data-tauri-drag-region>{projectName}</strong>
+          {isExpanded && (
             <button
               type="button"
               className="inline-switch"
@@ -206,7 +218,7 @@ export function App() {
             >
               <IconSwitch size={SWITCH_ICON_SIZE} />
             </button>
-          </div>
+          )}
         </div>
         {hasTimer && <time data-tauri-drag-region>{elapsedLabel}</time>}
       </section>
