@@ -6,10 +6,51 @@ mod models;
 use detector::AppState;
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
-use tauri::{AppHandle, Manager, WindowEvent};
+use tauri::{AppHandle, Emitter, Manager, WindowEvent};
 use tauri_plugin_autostart::MacosLauncher;
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
 use tauri_plugin_store::StoreExt;
+use tauri_plugin_updater::UpdaterExt;
+
+/// Checks the GitHub Releases endpoint configured in tauri.conf.json for a
+/// newer version; if one exists, downloads and installs it, then relaunches
+/// so it takes effect. Tracked history is untouched either way — it lives in
+/// the per-user app data dir, not the install directory a new version
+/// overwrites. Runs once at startup, not on a timer, so an update can only
+/// land in the first few seconds after launch rather than interrupting an
+/// active session later.
+async fn check_for_update(app: AppHandle) {
+    let updater = match app.updater() {
+        Ok(updater) => updater,
+        Err(err) => {
+            eprintln!("Pulse: updater unavailable: {err}");
+            return;
+        }
+    };
+
+    let update = match updater.check().await {
+        Ok(Some(update)) => update,
+        Ok(None) => return,
+        Err(err) => {
+            eprintln!("Pulse: update check failed: {err}");
+            return;
+        }
+    };
+
+    let _ = app.emit(
+        "toast-message",
+        &models::ToastMessage {
+            text: format!("Aggiornamento a v{} in corso...", update.version),
+        },
+    );
+
+    if let Err(err) = update.download_and_install(|_, _| {}, || {}).await {
+        eprintln!("Pulse: update install failed: {err}");
+        return;
+    }
+
+    app.restart();
+}
 
 fn show_widget(app: &AppHandle) {
     if let Some(window) = app.get_webview_window("main") {
@@ -54,6 +95,7 @@ pub fn run() {
             None,
         ))
         .plugin(tauri_plugin_store::Builder::default().build())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(
             tauri_plugin_global_shortcut::Builder::new()
                 .with_handler(|app, _shortcut, event| {
@@ -97,6 +139,11 @@ pub fn run() {
             let state = AppState::new(conn)?;
             app.manage(state);
             detector::spawn_polling(app.handle().clone());
+
+            let update_handle = app.handle().clone();
+            tauri::async_runtime::spawn(async move {
+                check_for_update(update_handle).await;
+            });
 
             let confirm_shortcut = {
                 let store = app.store("settings.json")?;

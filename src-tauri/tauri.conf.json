@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Pulse",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "identifier": "app.pulse.desktop",
   "build": {
     "beforeDevCommand": "npm run dev:ui",
@@ -61,6 +61,15 @@
   "bundle": {
     "active": true,
     "targets": ["msi", "nsis"],
-    "icon": ["icons/icon.ico"]
+    "icon": ["icons/icon.ico"],
+    "createUpdaterArtifacts": true
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEJFQ0E3OTRGQjlGMjUxMTkKUldRWlVmSzVUM25LdnYvR0taRWJVWDQ4M3BqcjNoeTdXTFAvUHJEWU5TUjMyL1FUN0h2d3dEaFoK",
+      "endpoints": [
+        "https://github.com/Kep007/Pulse/releases/latest/download/latest.json"
+      ]
+    }
   }
 }
