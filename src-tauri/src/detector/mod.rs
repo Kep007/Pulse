@@ -144,7 +144,7 @@ fn tick(app: &AppHandle) {
             let idle_started_at = now - chrono::Duration::seconds(idle_seconds as i64);
             let conn = state.db.lock().unwrap();
             if let Err(err) = db::close_open_segment(&conn, idle_started_at) {
-                eprintln!("Pulse: failed to close segment on idle: {err}");
+                log::error!("failed to close segment on idle: {err}");
             }
             detector.is_idle = true;
             detector.candidate = None;
@@ -224,8 +224,8 @@ fn tick(app: &AppHandle) {
         return;
     }
 
-    eprintln!(
-        "Pulse: window_title={:?} process_name={:?} -> project={:?} activity={:?}",
+    log::debug!(
+        "window_title={:?} process_name={:?} -> project={:?} activity={:?}",
         info.window_title, info.process_name, detected.project, detected.activity
     );
 
@@ -519,7 +519,7 @@ fn commit(
         window_title,
         process_name,
     ) {
-        eprintln!("Pulse: failed to write time segment: {err}");
+        log::error!("failed to write time segment: {err}");
     }
 
     let today_start = at

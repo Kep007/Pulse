@@ -9,8 +9,40 @@ use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent}
 use tauri::{AppHandle, Emitter, Manager, WindowEvent};
 use tauri_plugin_autostart::MacosLauncher;
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
+use tauri_plugin_log::{Target, TargetKind};
 use tauri_plugin_store::StoreExt;
 use tauri_plugin_updater::UpdaterExt;
+
+/// Writes crashes to a plain file directly, independent of the log plugin —
+/// so a panic during startup (before that plugin has finished initializing,
+/// e.g. inside `db::open`'s `.expect()` calls) still leaves a trace. This is
+/// the file to check first when the app "just crashes" with no other clue.
+fn install_panic_hook() {
+    let default_hook = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        // Matches tauri_plugin_log's LogDir target (dirs::data_local_dir,
+        // i.e. %LOCALAPPDATA% on Windows, not %APPDATA%) so both land in the
+        // same folder the user is told to check.
+        if let Some(local_app_data) = std::env::var_os("LOCALAPPDATA") {
+            let path = std::path::Path::new(&local_app_data)
+                .join("app.pulse.desktop")
+                .join("logs")
+                .join("crash.log");
+            if let Some(parent) = path.parent() {
+                let _ = std::fs::create_dir_all(parent);
+            }
+            if let Ok(mut file) = std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(&path)
+            {
+                use std::io::Write;
+                let _ = writeln!(file, "[{}] {info}", chrono::Utc::now().to_rfc3339());
+            }
+        }
+        default_hook(info);
+    }));
+}
 
 /// Checks the GitHub Releases endpoint configured in tauri.conf.json for a
 /// newer version; if one exists, downloads and installs it, then relaunches
@@ -23,7 +55,7 @@ async fn check_for_update(app: AppHandle) {
     let updater = match app.updater() {
         Ok(updater) => updater,
         Err(err) => {
-            eprintln!("Pulse: updater unavailable: {err}");
+            log::error!("updater unavailable: {err}");
             return;
         }
     };
@@ -32,7 +64,7 @@ async fn check_for_update(app: AppHandle) {
         Ok(Some(update)) => update,
         Ok(None) => return,
         Err(err) => {
-            eprintln!("Pulse: update check failed: {err}");
+            log::error!("update check failed: {err}");
             return;
         }
     };
@@ -45,7 +77,7 @@ async fn check_for_update(app: AppHandle) {
     );
 
     if let Err(err) = update.download_and_install(|_, _| {}, || {}).await {
-        eprintln!("Pulse: update install failed: {err}");
+        log::error!("update install failed: {err}");
         return;
     }
 
@@ -85,7 +117,16 @@ fn toggle_widget(app: &AppHandle, toggle_item: &MenuItem<tauri::Wry>) {
 }
 
 pub fn run() {
+    install_panic_hook();
+
     tauri::Builder::default()
+        .plugin(
+            tauri_plugin_log::Builder::new()
+                .target(Target::new(TargetKind::LogDir { file_name: None }))
+                .target(Target::new(TargetKind::Stdout))
+                .level(log::LevelFilter::Info)
+                .build(),
+        )
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
             show_widget(app);
         }))
@@ -135,6 +176,7 @@ pub fn run() {
             commands::projects::set_project_aliases,
         ])
         .setup(|app| {
+            log::info!("Pulse {} starting up", app.package_info().version);
             let conn = db::open(app.handle())?;
             let state = AppState::new(conn)?;
             app.manage(state);
@@ -155,7 +197,7 @@ pub fn run() {
                     })
             };
             if let Err(err) = app.global_shortcut().register(confirm_shortcut.as_str()) {
-                eprintln!("Pulse: failed to register confirm shortcut: {err}");
+                log::error!("failed to register confirm shortcut: {err}");
             }
 
             let activity_detection_enabled = {
