@@ -152,8 +152,40 @@
   max-width: 820px;
 }
 
-.dashboard-toolbar {
+.dashboard-card-header {
   display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.card-controls {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.card-filter-select {
+  /* Custom chevron (same path as IconChevron) instead of the native one —
+     the browser's own arrow sits flush against the border regardless of
+     padding, which is what made it look cramped. This one gets its own
+     inset via background-position, independent of the text padding. */
+  appearance: none;
+  -webkit-appearance: none;
+  border: 1px solid #d0d5dd;
+  border-radius: 8px;
+  padding: 6px 26px 6px 10px;
+  font: inherit;
+  font-size: 12px;
+  color: #172033;
+  background-color: #ffffff;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20' fill='none'><path d='M5.5 7.5 10 12l4.5-4.5' stroke='%23667085' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'/></svg>");
+  background-repeat: no-repeat;
+  background-position: right 8px center;
+  background-size: 12px 12px;
+  cursor: pointer;
 }
 
 .metric-switcher {
@@ -193,6 +225,14 @@
   font-size: 20px;
   font-weight: 600;
   color: #475467;
+}
+
+/* .dashboard-card-header (used by the Dashboard tab's cards) puts its own
+   margin-bottom on the header row instead, so the h2 inside it shouldn't
+   double up — ProjectsView's standalone h2 (no such wrapper) keeps the
+   margin above. */
+.dashboard-card-header h2 {
+  margin: 0;
 }
 
 /* Heatmap */

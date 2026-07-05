@@ -1,9 +1,20 @@
 import { memo, useEffect, useMemo, useRef, useState } from "react";
 import type { PointerEvent, UIEvent } from "react";
 import { formatDateIt, formatHoursMinutes } from "../../lib/format";
-import type { BreakdownMetric, DayBucket } from "../../lib/types";
+import type { BreakdownEntry, BreakdownMetric, DayBucket } from "../../lib/types";
 import { BreakdownTooltip } from "./BreakdownTooltip";
 import { TooltipTrigger } from "./TooltipTrigger";
+
+// When a specific project/activity is selected (filterId), the cell should
+// reflect only its share of the day instead of the day's grand total —
+// same idea for the single-entry tooltip breakdown.
+function filteredTotal(entries: BreakdownEntry[], filterId: number | null, fallback: number) {
+  if (filterId === null) {
+    return { totalSeconds: fallback, entries };
+  }
+  const match = entries.find((entry) => entry.id === filterId);
+  return { totalSeconds: match?.seconds ?? 0, entries: match ? [match] : [] };
+}
 
 // How many calendar months to show, ending at (and including) the current
 // one — never further ahead. Since this is recomputed from the real
@@ -114,6 +125,7 @@ type HeatmapGridProps = {
   blocks: MonthBlock[];
   bucketByDate: Map<string, DayBucket>;
   metric: BreakdownMetric;
+  filterId: number | null;
 };
 
 // Split out and memoized: this is the expensive part (~400 cells across
@@ -121,7 +133,12 @@ type HeatmapGridProps = {
 // the year corner and the scrollbar thumb) and on drag start/end — without
 // memoizing this out, each of those re-renders was reconciling the entire
 // grid too, which is what made the pan and the release freeze/stutter.
-const HeatmapGrid = memo(function HeatmapGrid({ blocks, bucketByDate, metric }: HeatmapGridProps) {
+const HeatmapGrid = memo(function HeatmapGrid({
+  blocks,
+  bucketByDate,
+  metric,
+  filterId,
+}: HeatmapGridProps) {
   return (
     <>
       <div className="heatmap-months">
@@ -155,8 +172,12 @@ const HeatmapGrid = memo(function HeatmapGrid({ blocks, bucketByDate, metric }: 
 
                 const dateKey = isoDateKey(cell.date as Date);
                 const bucket = bucketByDate.get(dateKey);
-                const totalSeconds = bucket?.totalSeconds ?? 0;
-                const entries = metric === "project" ? bucket?.byProject ?? [] : bucket?.byActivity ?? [];
+                const rawEntries = metric === "project" ? bucket?.byProject ?? [] : bucket?.byActivity ?? [];
+                const { totalSeconds, entries } = filteredTotal(
+                  rawEntries,
+                  filterId,
+                  bucket?.totalSeconds ?? 0,
+                );
 
                 return (
                   <TooltipTrigger
@@ -185,9 +206,10 @@ const HeatmapGrid = memo(function HeatmapGrid({ blocks, bucketByDate, metric }: 
 type HeatmapProps = {
   buckets: DayBucket[];
   metric: BreakdownMetric;
+  filterId: number | null;
 };
 
-export function Heatmap({ buckets, metric }: HeatmapProps) {
+export function Heatmap({ buckets, metric, filterId }: HeatmapProps) {
   const bucketByDate = useMemo(() => {
     const map = new Map<string, DayBucket>();
     for (const bucket of buckets) {
@@ -405,7 +427,7 @@ export function Heatmap({ buckets, metric }: HeatmapProps) {
         onPointerCancel={endDrag}
         onScroll={handleScroll}
       >
-        <HeatmapGrid blocks={blocks} bucketByDate={bucketByDate} metric={metric} />
+        <HeatmapGrid blocks={blocks} bucketByDate={bucketByDate} metric={metric} filterId={filterId} />
       </div>
       {/* WebView2's native scrollbar can't be restyled (see .heatmap-scroll),
           so this is a minimal custom stand-in — thumb size/position written

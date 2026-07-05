@@ -21,16 +21,20 @@ export function formatHoursMinutes(totalSeconds: number) {
   return hours > 0 ? `${hours}h ${minutes}m` : `${minutes}m`;
 }
 
+function capitalize(text: string) {
+  return text.charAt(0).toUpperCase() + text.slice(1);
+}
+
+// e.g. "4 Luglio (Sab)" — short enough for the heatmap tooltip title. The
+// year is dropped since the tooltip is always about a recent, unambiguous
+// date; Intl.DateTimeFormat lowercases both the month and the weekday
+// abbreviation in it-IT, so both get capitalized by hand.
 export function formatDateIt(dateKey: string) {
   const [year, month, day] = dateKey.split("-").map(Number);
   const date = new Date(Date.UTC(year, month - 1, day));
-  return date.toLocaleDateString("it-IT", {
-    weekday: "long",
-    day: "numeric",
-    month: "long",
-    year: "numeric",
-    timeZone: "UTC",
-  });
+  const monthName = date.toLocaleDateString("it-IT", { month: "long", timeZone: "UTC" });
+  const weekday = date.toLocaleDateString("it-IT", { weekday: "short", timeZone: "UTC" });
+  return `${day} ${capitalize(monthName)} (${capitalize(weekday)})`;
 }
 
 export function formatMonthIt(monthKey: string) {
