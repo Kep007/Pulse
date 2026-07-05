@@ -25,8 +25,29 @@ fn show_home(app: &AppHandle) {
     }
 }
 
+/// Shows or hides the widget and keeps the tray menu label in sync, so the
+/// menu always reflects the action it's about to perform rather than a
+/// static "Mostra Pulse" that does nothing when the widget is already shown.
+fn toggle_widget(app: &AppHandle, toggle_item: &MenuItem<tauri::Wry>) {
+    let Some(window) = app.get_webview_window("main") else {
+        return;
+    };
+    let is_visible = window.is_visible().unwrap_or(true);
+    if is_visible {
+        let _ = window.hide();
+        let _ = toggle_item.set_text("Mostra Pulse");
+    } else {
+        let _ = window.show();
+        let _ = window.set_focus();
+        let _ = toggle_item.set_text("Nascondi Pulse");
+    }
+}
+
 pub fn run() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            show_widget(app);
+        }))
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_autostart::init(
             MacosLauncher::LaunchAgent,
@@ -87,26 +108,36 @@ pub fn run() {
                 eprintln!("Pulse: failed to register confirm shortcut: {err}");
             }
 
-            let show = MenuItem::with_id(app, "show", "Mostra Pulse", true, None::<&str>)?;
+            let widget_visible = app
+                .get_webview_window("main")
+                .map(|w| w.is_visible().unwrap_or(true))
+                .unwrap_or(true);
+            let toggle_label = if widget_visible {
+                "Nascondi Pulse"
+            } else {
+                "Mostra Pulse"
+            };
+            let toggle = MenuItem::with_id(app, "toggle", toggle_label, true, None::<&str>)?;
             let dashboard =
                 MenuItem::with_id(app, "dashboard", "Apri Dashboard", true, None::<&str>)?;
             let quit = MenuItem::with_id(app, "quit", "Esci", true, None::<&str>)?;
-            let menu = Menu::with_items(app, &[&show, &dashboard, &quit])?;
+            let menu = Menu::with_items(app, &[&toggle, &dashboard, &quit])?;
 
             let mut tray_builder = TrayIconBuilder::new().tooltip("Pulse").menu(&menu);
             if let Some(icon) = app.default_window_icon() {
                 tray_builder = tray_builder.icon(icon.clone());
             }
 
+            let toggle_for_menu = toggle.clone();
             let _tray = tray_builder
                 .show_menu_on_left_click(false)
-                .on_menu_event(|app, event| match event.id.as_ref() {
-                    "show" => show_widget(app),
+                .on_menu_event(move |app, event| match event.id.as_ref() {
+                    "toggle" => toggle_widget(app, &toggle_for_menu),
                     "dashboard" => show_home(app),
                     "quit" => app.exit(0),
                     _ => {}
                 })
-                .on_tray_icon_event(|tray, event| {
+                .on_tray_icon_event(move |tray, event| {
                     if let TrayIconEvent::Click {
                         button: MouseButton::Left,
                         button_state: MouseButtonState::Up,
@@ -114,6 +145,7 @@ pub fn run() {
                     } = event
                     {
                         show_widget(tray.app_handle());
+                        let _ = toggle.set_text("Nascondi Pulse");
                     }
                 })
                 .build(app)?;
@@ -121,11 +153,9 @@ pub fn run() {
             Ok(())
         })
         .on_window_event(|window, event| {
-            if window.label() == "home" {
-                if let WindowEvent::CloseRequested { api, .. } = event {
-                    api.prevent_close();
-                    let _ = window.hide();
-                }
+            if let WindowEvent::CloseRequested { api, .. } = event {
+                api.prevent_close();
+                let _ = window.hide();
             }
         })
         .run(tauri::generate_context!())
