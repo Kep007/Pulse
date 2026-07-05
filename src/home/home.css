@@ -235,6 +235,41 @@
   margin: 0;
 }
 
+.dashboard-card-title {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.card-info-button {
+  flex-shrink: 0;
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  border: 0;
+  border-radius: 999px;
+  padding: 0;
+  color: #98a2b3;
+  background: transparent;
+  cursor: pointer;
+}
+
+.card-info-button:hover,
+.card-info-button:focus-visible {
+  color: #475467;
+  background: #eef2f7;
+}
+
+.info-tooltip {
+  max-width: 240px;
+}
+
+.info-tooltip-text {
+  margin: 0;
+}
+
 /* Heatmap */
 
 .heatmap {

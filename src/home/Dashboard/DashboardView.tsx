@@ -4,6 +4,7 @@ import type { ActivityTypeDto, BreakdownMetric, DayBucket, MonthBucket } from ".
 import { useProjects } from "../../lib/useProjects";
 import { assignCategoricalColors } from "./categoricalPalette";
 import { DashboardCardControls } from "./DashboardCardControls";
+import { DashboardCardTitle } from "./DashboardCardTitle";
 import { EntityStatsCard } from "./EntityStatsCard";
 import { Heatmap, MONTHS_BACK } from "./Heatmap";
 import { MonthlySummary } from "./MonthlySummary";
@@ -107,7 +108,10 @@ export function DashboardView() {
     <div className="dashboard-view">
       <section className="dashboard-card">
         <div className="dashboard-card-header">
-          <h2>Riepilogo</h2>
+          <DashboardCardTitle
+            title="Riepilogo"
+            info="Statistiche calcolate su tutto lo storico registrato per il progetto o l'attività selezionata, non solo sul periodo mostrato negli altri grafici: tempo totale, media di tempo nei soli giorni in cui hai lavorato su questa voce, il mese e il giorno della settimana in cui vi hai dedicato più tempo in assoluto."
+          />
           <DashboardCardControls
             metric={statsMetric}
             onMetricChange={setStatsMetric}
@@ -130,7 +134,10 @@ export function DashboardView() {
 
       <section className="dashboard-card">
         <div className="dashboard-card-header">
-          <h2>Ripartizione del tempo</h2>
+          <DashboardCardTitle
+            title="Ripartizione del tempo"
+            info="Percentuale di tempo dedicato a ciascun progetto (o attività) rispetto al totale, calcolata su tutto lo storico registrato. Oltre le prime 8 voci, il resto viene raggruppato in «Altro»."
+          />
           <DashboardCardControls
             metric={breakdownMetric}
             onMetricChange={setBreakdownMetric}
@@ -150,7 +157,10 @@ export function DashboardView() {
 
       <section className="dashboard-card">
         <div className="dashboard-card-header">
-          <h2>Classifica</h2>
+          <DashboardCardTitle
+            title="Classifica"
+            info="Progetti (o attività) ordinati per tempo totale dedicato, calcolato su tutto lo storico registrato — non solo sul periodo recente."
+          />
           <DashboardCardControls
             metric={rankingMetric}
             onMetricChange={setRankingMetric}
@@ -169,7 +179,10 @@ export function DashboardView() {
 
       <section className="dashboard-card">
         <div className="dashboard-card-header">
-          <h2>Storico giornaliero</h2>
+          <DashboardCardTitle
+            title="Storico giornaliero"
+            info="Un quadratino per ogni giorno, colorato in base a quanto tempo hai tracciato quel giorno — più scuro significa più tempo. Puoi filtrare per un singolo progetto o attività, oppure vedere il totale di tutti."
+          />
           <DashboardCardControls
             metric={dailyMetric}
             onMetricChange={setDailyMetric}
@@ -184,7 +197,10 @@ export function DashboardView() {
 
       <section className="dashboard-card">
         <div className="dashboard-card-header">
-          <h2>Storico mensile</h2>
+          <DashboardCardTitle
+            title="Storico mensile"
+            info="Tempo totale tracciato in ciascuno degli ultimi 12 mesi. Il colore di ogni barra indica quanto quel mese si avvicina al mese con più tempo registrato nel periodo mostrato."
+          />
           <DashboardCardControls
             metric={monthlyMetric}
             onMetricChange={setMonthlyMetric}

@@ -8,4 +8,5 @@ export { IconTag } from "./IconTag";
 export { IconClose } from "./IconClose";
 export { IconChevron } from "./IconChevron";
 export { IconCheck } from "./IconCheck";
+export { IconInfo } from "./IconInfo";
 export type { IconProps } from "./types";

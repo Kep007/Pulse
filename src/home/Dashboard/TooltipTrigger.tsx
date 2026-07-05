@@ -9,6 +9,7 @@ type TooltipTriggerProps = {
   style?: CSSProperties;
   ariaLabel: string;
   renderTooltip: () => ReactNode;
+  children?: ReactNode;
 };
 
 // Rough worst-case height (title + total + up to 6 breakdown rows) used to
@@ -27,7 +28,13 @@ const VIEWPORT_MARGIN = 12;
 // picked per-trigger from the actual space available at hover time, so a
 // button near the top of the viewport opens downward and one near the
 // bottom opens upward, automatically.
-export function TooltipTrigger({ className, style, ariaLabel, renderTooltip }: TooltipTriggerProps) {
+export function TooltipTrigger({
+  className,
+  style,
+  ariaLabel,
+  renderTooltip,
+  children,
+}: TooltipTriggerProps) {
   const ref = useRef<HTMLButtonElement>(null);
   const [portal, setPortal] = useState<{ left: number; top: number; placement: Placement } | null>(
     null,
@@ -63,7 +70,9 @@ export function TooltipTrigger({ className, style, ariaLabel, renderTooltip }: T
         onFocus={show}
         onMouseLeave={hide}
         onBlur={hide}
-      />
+      >
+        {children}
+      </button>
       {portal
         ? createPortal(
             <div
