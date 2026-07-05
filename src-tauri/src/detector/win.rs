@@ -1,8 +1,11 @@
 use windows::Win32::Foundation::{CloseHandle, HWND};
+use windows::Win32::System::SystemInformation::GetTickCount;
 use windows::Win32::System::Threading::{
     OpenProcess, QueryFullProcessImageNameW, PROCESS_NAME_WIN32, PROCESS_QUERY_LIMITED_INFORMATION,
 };
-use windows::Win32::UI::Input::KeyboardAndMouse::{GetAsyncKeyState, VK_CONTROL};
+use windows::Win32::UI::Input::KeyboardAndMouse::{
+    GetAsyncKeyState, GetLastInputInfo, LASTINPUTINFO, VK_CONTROL,
+};
 use windows::Win32::UI::WindowsAndMessaging::{
     GetForegroundWindow, GetWindowTextW, GetWindowThreadProcessId,
 };
@@ -74,6 +77,26 @@ unsafe fn read_process_exe_path(pid: u32) -> Option<String> {
 /// works regardless of which window currently has focus.
 pub fn is_ctrl_pressed() -> bool {
     unsafe { (GetAsyncKeyState(VK_CONTROL.0 as i32) as u16 & 0x8000) != 0 }
+}
+
+/// Seconds since the last system-wide keyboard or mouse input, regardless of
+/// which window (if any) currently has focus — this is what lets typing a
+/// WhatsApp message count as "active" even though the browser tab title
+/// never changes, without needing to know which app that input landed in.
+pub fn system_idle_seconds() -> u64 {
+    unsafe {
+        let mut info = LASTINPUTINFO {
+            cbSize: std::mem::size_of::<LASTINPUTINFO>() as u32,
+            dwTime: 0,
+        };
+        if GetLastInputInfo(&mut info).as_bool() {
+            // GetTickCount wraps every ~49.7 days; wrapping_sub keeps the
+            // subtraction correct across that rollover.
+            (GetTickCount().wrapping_sub(info.dwTime) as u64) / 1000
+        } else {
+            0
+        }
+    }
 }
 
 fn process_name_from_path(exe_path: &str) -> String {

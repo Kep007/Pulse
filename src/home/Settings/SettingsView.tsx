@@ -1,3 +1,4 @@
+import { ActivityDetectionToggle } from "./ActivityDetectionToggle";
 import { AutostartToggle } from "./AutostartToggle";
 import { ConfirmShortcutSetting } from "./ConfirmShortcutSetting";
 import { QuitButton } from "./QuitButton";
@@ -9,6 +10,7 @@ export function SettingsView() {
     <div className="settings-view">
       <WidgetPositionSetting />
       <AutostartToggle />
+      <ActivityDetectionToggle />
       <ConfirmShortcutSetting />
       <ResetDataButton />
       <QuitButton />

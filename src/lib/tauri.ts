@@ -88,6 +88,14 @@ export function setConfirmShortcut(shortcut: string) {
   return invoke<string>("set_confirm_shortcut", { shortcut });
 }
 
+export function getActivityDetectionEnabled() {
+  return invoke<boolean>("get_activity_detection_enabled");
+}
+
+export function setActivityDetectionEnabled(enabled: boolean) {
+  return invoke<boolean>("set_activity_detection_enabled", { enabled });
+}
+
 export function createProject(name: string, color: string | null) {
   return invoke<ProjectDto>("create_project", { name, color });
 }
@@ -102,4 +110,8 @@ export function archiveProject(id: number) {
 
 export function reorderProjects(orderedIds: number[]) {
   return invoke<void>("reorder_projects", { orderedIds });
+}
+
+export function setProjectAliases(projectId: number, aliases: string[]) {
+  return invoke<void>("set_project_aliases", { projectId, aliases });
 }

@@ -6,6 +6,10 @@ pub struct ProjectDto {
     pub slug: String,
     pub name: String,
     pub color: Option<String>,
+    /// Alternate strings that also count as this project for auto-detection
+    /// (abbreviations, file-naming conventions) — edited as a single
+    /// comma-separated field alongside the name, not managed one at a time.
+    pub aliases: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -46,6 +50,11 @@ pub struct TrackingState {
     pub activity_type: Option<ActivityTypeDto>,
     pub source: Source,
     pub is_paused: bool,
+    /// True once the system has been idle (no keyboard/mouse input) long
+    /// enough to stop crediting time to `project`/`activity_type` — those
+    /// fields still name whatever was last tracked, so tracking can resume
+    /// on the same one the moment input comes back, without re-detecting it.
+    pub is_idle: bool,
     pub segment_started_at: String,
     pub pending: Option<PendingSuggestion>,
 }

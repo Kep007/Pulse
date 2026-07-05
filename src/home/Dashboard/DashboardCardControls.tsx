@@ -17,6 +17,12 @@ type DashboardCardControlsProps = {
   projects: ProjectDto[];
   activityTypes: ActivityTypeDto[];
   filterMode?: FilterMode;
+  // Activities are parked (see the Settings toggle) — while off, there's no
+  // activity data being collected, so the Progetti/Attività switcher itself
+  // is hidden rather than offering a mode that would only ever show empty
+  // charts. The caller's metric state is left alone (still "project"); it
+  // just can never become "activity" via this control while hidden.
+  activityEnabled?: boolean;
 };
 
 export function DashboardCardControls({
@@ -27,6 +33,7 @@ export function DashboardCardControls({
   projects,
   activityTypes,
   filterMode = "all",
+  activityEnabled = true,
 }: DashboardCardControlsProps) {
   const options = metric === "project" ? projects : activityTypes;
 
@@ -42,26 +49,28 @@ export function DashboardCardControls({
 
   return (
     <div className="card-controls">
-      <div className="metric-switcher" role="tablist" aria-label="Ripartizione">
-        <button
-          type="button"
-          role="tab"
-          aria-selected={metric === "project"}
-          className={metric === "project" ? "metric-tab active" : "metric-tab"}
-          onClick={() => handleMetricChange("project")}
-        >
-          Progetti
-        </button>
-        <button
-          type="button"
-          role="tab"
-          aria-selected={metric === "activity"}
-          className={metric === "activity" ? "metric-tab active" : "metric-tab"}
-          onClick={() => handleMetricChange("activity")}
-        >
-          Attività
-        </button>
-      </div>
+      {activityEnabled && (
+        <div className="metric-switcher" role="tablist" aria-label="Ripartizione">
+          <button
+            type="button"
+            role="tab"
+            aria-selected={metric === "project"}
+            className={metric === "project" ? "metric-tab active" : "metric-tab"}
+            onClick={() => handleMetricChange("project")}
+          >
+            Progetti
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={metric === "activity"}
+            className={metric === "activity" ? "metric-tab active" : "metric-tab"}
+            onClick={() => handleMetricChange("activity")}
+          >
+            Attività
+          </button>
+        </div>
+      )}
       {filterMode !== "none" && (
         <select
           className="card-filter-select"

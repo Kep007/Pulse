@@ -6,9 +6,19 @@ import {
   createProject,
   listProjects,
   reorderProjects,
+  setProjectAliases,
   updateProject,
 } from "../../lib/tauri";
 import type { ProjectDto } from "../../lib/types";
+
+// Splits "sidial, sdl , SID" into ["sidial", "sdl", "SID"], dropping blanks
+// left over from stray/trailing commas.
+function parseAliasesText(text: string) {
+  return text
+    .split(",")
+    .map((alias) => alias.trim())
+    .filter((alias) => alias.length > 0);
+}
 
 const REFLOW_TRANSITION = "transform 180ms ease";
 
@@ -24,6 +34,7 @@ export function ProjectsView() {
   const [newName, setNewName] = useState("");
   const [editingId, setEditingId] = useState<number | null>(null);
   const [editName, setEditName] = useState("");
+  const [editAliasesText, setEditAliasesText] = useState("");
   const [archiveTarget, setArchiveTarget] = useState<ProjectDto | null>(null);
   const [draggingId, setDraggingId] = useState<number | null>(null);
   const rowRefs = useRef(new Map<number, HTMLTableRowElement>());
@@ -59,6 +70,7 @@ export function ProjectsView() {
   function startEdit(project: ProjectDto) {
     setEditingId(project.id);
     setEditName(project.name);
+    setEditAliasesText(project.aliases.join(", "));
   }
 
   async function saveEdit() {
@@ -70,6 +82,7 @@ export function ProjectsView() {
       return;
     }
     await updateProject(editingId, name, null);
+    await setProjectAliases(editingId, parseAliasesText(editAliasesText));
     setEditingId(null);
     await refresh();
   }
@@ -225,6 +238,14 @@ export function ProjectsView() {
       <section className="dashboard-card">
         <h2>Progetti</h2>
         <table className="projects-table">
+          <thead>
+            <tr>
+              <th className="drag-handle" aria-hidden="true" />
+              <th>Nome</th>
+              <th>Alias</th>
+              <th>Azioni</th>
+            </tr>
+          </thead>
           <tbody>
             {projects.map((project, index) => (
               <tr
@@ -256,6 +277,21 @@ export function ProjectsView() {
                     />
                   ) : (
                     <span>{project.name}</span>
+                  )}
+                </td>
+                <td className="project-alias-cell">
+                  {editingId === project.id ? (
+                    <input
+                      type="text"
+                      placeholder="Alias separati da virgola"
+                      value={editAliasesText}
+                      onChange={(event) => setEditAliasesText(event.target.value)}
+                      onKeyDown={handleEditKeyDown}
+                    />
+                  ) : project.aliases.length > 0 ? (
+                    <span>{project.aliases.join(", ")}</span>
+                  ) : (
+                    <span className="project-alias-empty">—</span>
                   )}
                 </td>
                 <td className="project-actions-cell">

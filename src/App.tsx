@@ -5,7 +5,7 @@ import { IconHome, IconPause, IconPlay, IconSwitch, IconTag } from "./components
 import { useElapsedSeconds } from "./lib/events";
 import { formatElapsed } from "./lib/format";
 import { useTrackingState } from "./lib/TrackingContext";
-import { openHomeWindow, pauseTracking, resumeTracking } from "./lib/tauri";
+import { getActivityDetectionEnabled, openHomeWindow, pauseTracking, resumeTracking } from "./lib/tauri";
 import { ActivityPicker } from "./widget/ActivityPicker";
 import { ProjectPicker } from "./widget/ProjectPicker";
 import { useHoverExpand, useHoverIntent } from "./widget/useHoverExpand";
@@ -18,7 +18,16 @@ const MAX_COLLAPSED_WIDTH = 300;
 const WIDGET_PADDING = 7;
 const SWITCH_ICON_SIZE = 18;
 
+// Tuned for the layout with the activity chip visible; with it hidden
+// (activity detection off), the window shrinks by the chip's own measured
+// footprint — see the measureChipRef sizing effect below — rather than
+// leaving a fixed gap of dead space that the column's justify-content:
+// center would otherwise split evenly above and below the remaining rows.
 const EXPANDED_HEIGHT = 132;
+// .activity-chip's margin-top (-6px) eats back 6 of the .widget flex gap's
+// 8px, netting a 2px gap above it — the only piece of its footprint that
+// isn't part of its own measured box.
+const CHIP_GAP_ABOVE = 2;
 const EXPANDED_MIN_WIDTH = MAX_COLLAPSED_WIDTH;
 const EXPANDED_MAX_WIDTH = 420;
 const EXPANDED_PADDING = 12;
@@ -43,18 +52,49 @@ export function App() {
   const [isDocked, setIsDocked] = useState(false);
   const [collapsedWidth, setCollapsedWidth] = useState(MIN_COLLAPSED_WIDTH);
   const [expandedWidth, setExpandedWidth] = useState(EXPANDED_MIN_WIDTH);
+  const [expandedHeight, setExpandedHeight] = useState(EXPANDED_HEIGHT);
   const [nameWidth, setNameWidth] = useState<number | undefined>(undefined);
   const measureNameRef = useRef<HTMLElement>(null);
   const measureTimeRef = useRef<HTMLTimeElement>(null);
+  const measureChipRef = useRef<HTMLSpanElement>(null);
+  // Activities are parked (see Settings) — default to hidden rather than
+  // flashing the chip on for the instant before this resolves, since off is
+  // the common case right now.
+  const [activityEnabled, setActivityEnabled] = useState(false);
+
+  useEffect(() => {
+    getActivityDetectionEnabled().then(setActivityEnabled);
+  }, []);
 
   const isPaused = state?.isPaused ?? false;
-  const rawProjectName = state?.project?.name ?? "Nessun progetto rilevato";
+  const isIdle = state?.isIdle ?? false;
+  const hasProject = state?.project != null;
+  // Priority, most to least specific: paused (gray) always wins; then idle
+  // (red) — the system's been untouched long enough that the backend already
+  // stopped crediting time to it (see IDLE_THRESHOLD_SECS in
+  // detector/mod.rs); then "no project" (red too, different label) —
+  // including right at startup, before anything has been detected yet, which
+  // used to read as green even though nothing was actually being tracked;
+  // then a manually-picked project (orange), a deliberate choice the
+  // auto-detector won't silently override (see the Source::Manual branch in
+  // detector/mod.rs's tick()); otherwise auto-detected and active (green,
+  // plain .status-dot).
+  const statusDotClass = isPaused
+    ? "status-dot paused"
+    : isIdle || !hasProject
+      ? "status-dot none"
+      : state?.source === "manual"
+        ? "status-dot manual"
+        : "status-dot";
+  const rawProjectName = isIdle
+    ? "Nessuna attività"
+    : (state?.project?.name ?? "Nessun progetto rilevato");
   const projectName =
     rawProjectName.length > MAX_NAME_CHARS
       ? `${rawProjectName.slice(0, MAX_NAME_CHARS)}…`
       : rawProjectName;
   const activityName = state?.activityType?.name ?? "Nessuna attività";
-  const hasTimer = Boolean(state?.project || state?.activityType);
+  const hasTimer = !isIdle && Boolean(state?.project || state?.activityType);
 
   // Sizes the collapsed pill to fit its content exactly rather than guessing
   // a chrome-width constant (past attempts at that under- and over-shot,
@@ -109,11 +149,16 @@ export function App() {
       Math.max(EXPANDED_MIN_WIDTH, expandedContentWidth + EXPANDED_PADDING * 2),
     );
     setExpandedWidth(nextExpandedWidth);
-  }, [projectName, hasTimer]);
+
+    const chipHeight = activityEnabled
+      ? 0
+      : Math.ceil(measureChipRef.current?.getBoundingClientRect().height ?? 0) + CHIP_GAP_ABOVE;
+    setExpandedHeight(EXPANDED_HEIGHT - chipHeight);
+  }, [projectName, hasTimer, activityEnabled]);
 
   const expandedSize = useMemo(
-    () => ({ width: expandedWidth, height: EXPANDED_HEIGHT }),
-    [expandedWidth],
+    () => ({ width: expandedWidth, height: expandedHeight }),
+    [expandedWidth, expandedHeight],
   );
   const collapsedSize = useMemo(
     () => ({ width: collapsedWidth, height: COLLAPSED_HEIGHT }),
@@ -186,21 +231,31 @@ export function App() {
       >
         <strong ref={measureNameRef}>{projectName}</strong>
         {hasTimer && <time ref={measureTimeRef}>00:00:00</time>}
+        <span ref={measureChipRef} className="activity-chip">
+          <IconTag size={11} />
+          <span>{activityName}</span>
+        </span>
       </div>
 
       <section className={isExpanded ? "drag-zone expanded" : "drag-zone"}>
         {isExpanded ? (
           <div className="label-row">
             <div className="label-left">
-              <div className={isPaused ? "status-dot paused" : "status-dot"} />
+              <div className={statusDotClass} />
               <span className="label">
-                {isPaused ? "In pausa" : state?.source === "manual" ? "Manuale" : "Automatico"}
+                {isPaused
+                  ? "In pausa"
+                  : isIdle
+                    ? "Inattivo"
+                    : state?.source === "manual"
+                      ? "Manuale"
+                      : "Automatico"}
               </span>
             </div>
             {hasTimer && <time>{elapsedLabel}</time>}
           </div>
         ) : (
-          <div className={isPaused ? "status-dot paused" : "status-dot"} />
+          <div className={statusDotClass} />
         )}
         <div className={isExpanded ? "project-name-row flush" : "project-name-row"}>
           <strong style={{ width: nameWidth }}>{projectName}</strong>
@@ -220,15 +275,17 @@ export function App() {
 
       {isExpanded && (
         <>
-          <button
-            type="button"
-            className="activity-chip"
-            title="Cambia attività"
-            onClick={() => setOpenPicker((current) => (current === "activity" ? null : "activity"))}
-          >
-            <IconTag size={11} />
-            <span>{activityName}</span>
-          </button>
+          {activityEnabled && (
+            <button
+              type="button"
+              className="activity-chip"
+              title="Cambia attività"
+              onClick={() => setOpenPicker((current) => (current === "activity" ? null : "activity"))}
+            >
+              <IconTag size={11} />
+              <span>{activityName}</span>
+            </button>
+          )}
 
           <nav className="actions" aria-label="Controlli timer">
             <button

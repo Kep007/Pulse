@@ -129,6 +129,22 @@ button {
   box-shadow: 0 0 0 3px rgba(148, 163, 184, 0.18);
 }
 
+/* A manually-picked project — the auto-detector treats this as a deliberate
+   choice and won't silently replace it (see tick()'s Source::Manual
+   branch), so it gets its own color rather than reading as "automatic". */
+.status-dot.manual {
+  background: #f5920a;
+  box-shadow: 0 0 0 3px rgba(245, 146, 10, 0.18);
+}
+
+/* No project detected/assigned (including right at startup) — outranks
+   "automatic" green, since green implies something is actively being
+   tracked, which isn't true here. */
+.status-dot.none {
+  background: #ef4444;
+  box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.16);
+}
+
 /* Expanded state only: wraps the dot with the "In pausa"/"Automatico" label
    so both sit on their own row, flush at the row's true left edge (matching
    the project name, the activity chip, and the Home button below) instead

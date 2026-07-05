@@ -109,21 +109,30 @@ pub fn activity_rules(conn: &Connection) -> rusqlite::Result<Vec<(i64, String, S
     Ok(rows)
 }
 
+fn project_aliases_for(conn: &Connection, project_id: i64) -> rusqlite::Result<Vec<String>> {
+    let mut stmt = conn.prepare("SELECT alias FROM project_aliases WHERE project_id = ?1 ORDER BY id")?;
+    let aliases = stmt
+        .query_map([project_id], |row| row.get(0))?
+        .collect::<rusqlite::Result<_>>()?;
+    Ok(aliases)
+}
+
 pub fn list_projects(conn: &Connection) -> rusqlite::Result<Vec<ProjectDto>> {
     let mut stmt = conn.prepare(
         "SELECT id, slug, name, color FROM projects WHERE archived_at IS NULL ORDER BY sort_order",
     )?;
-    let rows = stmt
+    let base: Vec<(i64, String, String, Option<String>)> = stmt
         .query_map([], |row| {
-            Ok(ProjectDto {
-                id: row.get(0)?,
-                slug: row.get(1)?,
-                name: row.get(2)?,
-                color: row.get(3)?,
-            })
+            Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?))
         })?
         .collect::<rusqlite::Result<_>>()?;
-    Ok(rows)
+
+    let mut result = Vec::with_capacity(base.len());
+    for (id, slug, name, color) in base {
+        let aliases = project_aliases_for(conn, id)?;
+        result.push(ProjectDto { id, slug, name, color, aliases });
+    }
+    Ok(result)
 }
 
 pub fn list_activity_types(conn: &Connection) -> rusqlite::Result<Vec<ActivityTypeDto>> {
@@ -143,6 +152,9 @@ pub fn list_activity_types(conn: &Connection) -> rusqlite::Result<Vec<ActivityTy
     Ok(rows)
 }
 
+/// Aliases come back empty here — this is used for name/color lookups
+/// (toast labels, tracking state) where the caller never looks at them, not
+/// for the Progetti tab (which goes through list_projects instead).
 pub fn get_project(conn: &Connection, id: i64) -> rusqlite::Result<Option<ProjectDto>> {
     conn.query_row(
         "SELECT id, slug, name, color FROM projects WHERE id = ?1",
@@ -153,6 +165,7 @@ pub fn get_project(conn: &Connection, id: i64) -> rusqlite::Result<Option<Projec
                 slug: row.get(1)?,
                 name: row.get(2)?,
                 color: row.get(3)?,
+                aliases: Vec::new(),
             })
         },
     )
@@ -217,6 +230,7 @@ pub fn create_project(
         slug,
         name: name.to_string(),
         color: color.map(str::to_string),
+        aliases: Vec::new(),
     })
 }
 
@@ -250,6 +264,27 @@ pub fn reorder_projects(conn: &Connection, ordered_ids: &[i64]) -> rusqlite::Res
         tx.execute(
             "UPDATE projects SET sort_order = ?1 WHERE id = ?2",
             rusqlite::params![index as i64, id],
+        )?;
+    }
+    tx.commit()
+}
+
+/// Replaces this project's whole alias list in one transaction — the row's
+/// "Modifica" now edits name and aliases (comma-separated) together, so the
+/// natural write shape is "here's the full list now", not one add/remove at
+/// a time. Blank entries (from stray commas) are dropped; duplicates aren't
+/// de-duped here since the matcher treats them identically either way.
+pub fn set_project_aliases(conn: &Connection, project_id: i64, aliases: &[String]) -> rusqlite::Result<()> {
+    let tx = conn.unchecked_transaction()?;
+    tx.execute("DELETE FROM project_aliases WHERE project_id = ?1", [project_id])?;
+    for alias in aliases {
+        let trimmed = alias.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        tx.execute(
+            "INSERT INTO project_aliases (project_id, alias) VALUES (?1, ?2)",
+            rusqlite::params![project_id, trimmed],
         )?;
     }
     tx.commit()
@@ -308,6 +343,21 @@ pub fn transition_segment(
     )?;
 
     tx.commit()
+}
+
+/// Closes the current open segment (if any) without opening a new one —
+/// used when the system goes idle, so the idle stretch is excluded from
+/// every project's tracked time instead of either the previous project
+/// silently absorbing it or the idle gap being backfilled after the fact.
+pub fn close_open_segment(conn: &Connection, at: DateTime<Utc>) -> rusqlite::Result<()> {
+    conn.execute(
+        "UPDATE time_entries
+         SET ended_at = ?1,
+             duration_seconds = CAST((julianday(?1) - julianday(started_at)) * 86400 AS INTEGER)
+         WHERE ended_at IS NULL",
+        [at.to_rfc3339()],
+    )?;
+    Ok(())
 }
 
 pub struct RawSegment {

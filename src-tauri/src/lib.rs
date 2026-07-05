@@ -81,6 +81,8 @@ pub fn run() {
             commands::settings::reset_all_data,
             commands::settings::get_confirm_shortcut,
             commands::settings::set_confirm_shortcut,
+            commands::settings::get_activity_detection_enabled,
+            commands::settings::set_activity_detection_enabled,
             commands::stats::get_daily_summary,
             commands::stats::get_monthly_summary,
             commands::stats::get_day_detail,
@@ -88,6 +90,7 @@ pub fn run() {
             commands::projects::update_project,
             commands::projects::archive_project,
             commands::projects::reorder_projects,
+            commands::projects::set_project_aliases,
         ])
         .setup(|app| {
             let conn = db::open(app.handle())?;
@@ -107,6 +110,18 @@ pub fn run() {
             if let Err(err) = app.global_shortcut().register(confirm_shortcut.as_str()) {
                 eprintln!("Pulse: failed to register confirm shortcut: {err}");
             }
+
+            let activity_detection_enabled = {
+                let store = app.store("settings.json")?;
+                store
+                    .get("activityDetectionEnabled")
+                    .and_then(|value| value.as_bool())
+                    .unwrap_or(false)
+            };
+            *app.state::<AppState>()
+                .activity_detection_enabled
+                .lock()
+                .unwrap() = activity_detection_enabled;
 
             let widget_visible = app
                 .get_webview_window("main")

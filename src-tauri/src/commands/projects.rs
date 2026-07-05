@@ -71,3 +71,19 @@ pub fn reorder_projects(
     let _ = app.emit(CATALOG_CHANGED_EVENT, ());
     Ok(())
 }
+
+#[tauri::command]
+pub fn set_project_aliases(
+    app: AppHandle,
+    state: State<AppState>,
+    project_id: i64,
+    aliases: Vec<String>,
+) -> Result<(), String> {
+    {
+        let conn = state.db.lock().unwrap();
+        db::set_project_aliases(&conn, project_id, &aliases).map_err(|err| err.to_string())?;
+    }
+    detector::refresh_matcher(&app).map_err(|err| err.to_string())?;
+    let _ = app.emit(CATALOG_CHANGED_EVENT, ());
+    Ok(())
+}

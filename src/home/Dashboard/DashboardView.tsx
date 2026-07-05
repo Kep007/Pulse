@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { getDailySummary, getMonthlySummary, listActivityTypes } from "../../lib/tauri";
+import { getActivityDetectionEnabled, getDailySummary, getMonthlySummary, listActivityTypes } from "../../lib/tauri";
 import type { ActivityTypeDto, BreakdownMetric, DayBucket, MonthBucket } from "../../lib/types";
 import { useProjects } from "../../lib/useProjects";
 import { assignCategoricalColors } from "./categoricalPalette";
@@ -29,6 +29,7 @@ export function DashboardView() {
   const [allTimeMonthlyBuckets, setAllTimeMonthlyBuckets] = useState<MonthBucket[]>([]);
   const projects = useProjects();
   const [activityTypes, setActivityTypes] = useState<ActivityTypeDto[]>([]);
+  const [activityEnabled, setActivityEnabled] = useState(false);
 
   // Each card owns its own metric + filter — they're independent views, so
   // e.g. the daily heatmap can be filtered to one project while the monthly
@@ -61,6 +62,7 @@ export function DashboardView() {
     getMonthlySummary(ALL_TIME_FROM, toIso).then(setAllTimeMonthlyBuckets);
 
     listActivityTypes().then(setActivityTypes);
+    getActivityDetectionEnabled().then(setActivityEnabled);
   }, []);
 
   // The dynamic per-entity card has no "all" option — once the catalog for
@@ -120,6 +122,7 @@ export function DashboardView() {
             projects={projects}
             activityTypes={activityTypes}
             filterMode="required"
+            activityEnabled={activityEnabled}
           />
         </div>
         <EntityStatsCard
@@ -148,6 +151,7 @@ export function DashboardView() {
             projects={projects}
             activityTypes={activityTypes}
             filterMode="none"
+            activityEnabled={activityEnabled}
           />
         </div>
         <TimeBreakdownBar
@@ -171,6 +175,7 @@ export function DashboardView() {
             projects={projects}
             activityTypes={activityTypes}
             filterMode="none"
+            activityEnabled={activityEnabled}
           />
         </div>
         <TopEntriesRanking
@@ -194,6 +199,7 @@ export function DashboardView() {
             onFilterChange={setDailyFilterId}
             projects={projects}
             activityTypes={activityTypes}
+            activityEnabled={activityEnabled}
           />
         </div>
         <Heatmap buckets={dailyBuckets} metric={dailyMetric} filterId={dailyFilterId} />
@@ -212,6 +218,7 @@ export function DashboardView() {
             onFilterChange={setMonthlyFilterId}
             projects={projects}
             activityTypes={activityTypes}
+            activityEnabled={activityEnabled}
           />
         </div>
         <MonthlySummary buckets={monthlyBuckets} metric={monthlyMetric} filterId={monthlyFilterId} />

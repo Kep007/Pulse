@@ -1,12 +1,13 @@
-use crate::detector;
+use crate::detector::{self, AppState};
 use crate::models::TrackingState;
-use tauri::AppHandle;
+use tauri::{AppHandle, State};
 use tauri_plugin_autostart::ManagerExt;
 use tauri_plugin_global_shortcut::GlobalShortcutExt;
 use tauri_plugin_store::StoreExt;
 
 const SETTINGS_STORE: &str = "settings.json";
 pub const DEFAULT_CONFIRM_SHORTCUT: &str = "CommandOrControl+Shift+Y";
+const ACTIVITY_DETECTION_KEY: &str = "activityDetectionEnabled";
 
 #[tauri::command]
 pub fn set_autostart(app: AppHandle, enabled: bool) -> Result<bool, String> {
@@ -52,4 +53,24 @@ pub fn set_confirm_shortcut(app: AppHandle, shortcut: String) -> Result<String, 
     store.save().map_err(|err| err.to_string())?;
 
     Ok(shortcut)
+}
+
+#[tauri::command]
+pub fn get_activity_detection_enabled(state: State<AppState>) -> bool {
+    *state.activity_detection_enabled.lock().unwrap()
+}
+
+#[tauri::command]
+pub fn set_activity_detection_enabled(
+    app: AppHandle,
+    state: State<AppState>,
+    enabled: bool,
+) -> Result<bool, String> {
+    *state.activity_detection_enabled.lock().unwrap() = enabled;
+
+    let store = app.store(SETTINGS_STORE).map_err(|err| err.to_string())?;
+    store.set(ACTIVITY_DETECTION_KEY, serde_json::Value::Bool(enabled));
+    store.save().map_err(|err| err.to_string())?;
+
+    Ok(enabled)
 }

@@ -602,6 +602,10 @@
    the underline is a repeating background gradient instead — 2px dash, 2px
    gap, sitting 5px below the text. */
 .stat-tile-value-hoverable {
+  /* Shrinks to the text width instead of stretching to fill the flex
+     column — otherwise the underline (sized to the button, not the word)
+     would run on well past "6m" or "Luglio 2026" to the tile's edge. */
+  align-self: flex-start;
   border: 0;
   background-color: transparent;
   background-image: linear-gradient(to right, #c3c2b7 2px, transparent 2px);
@@ -744,6 +748,15 @@
   border-collapse: collapse;
 }
 
+.projects-table thead th {
+  padding: 0 8px 8px;
+  border-bottom: 1px solid #eef2f7;
+  text-align: left;
+  font-size: 12px;
+  font-weight: 600;
+  color: #667085;
+}
+
 .project-row td {
   padding: 10px 8px;
   border-bottom: 1px solid #eef2f7;
@@ -779,7 +792,7 @@
 }
 
 .project-name-cell {
-  width: 100%;
+  min-width: 200px;
 }
 
 .project-name-cell input[type="text"] {
@@ -852,4 +865,26 @@
 
 .add-project-row button.primary:hover {
   background: #1d4ed8;
+}
+
+/* Alias column in the Progetti table — read-only comma-joined text
+   normally, an input (name's edit sibling) while that row is in edit mode. */
+
+.project-alias-cell {
+  width: 100%;
+  font-size: 13px;
+  color: #475467;
+}
+
+.project-alias-cell input[type="text"] {
+  width: 100%;
+  border: 1px solid #d0d5dd;
+  border-radius: 6px;
+  padding: 6px 8px;
+  font: inherit;
+  font-size: 13px;
+}
+
+.project-alias-empty {
+  color: #c3c2b7;
 }

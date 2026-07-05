@@ -3,6 +3,7 @@ export type ProjectDto = {
   slug: string;
   name: string;
   color: string | null;
+  aliases: string[];
 };
 
 export type ActivityTypeDto = {
@@ -24,6 +25,7 @@ export type TrackingState = {
   activityType: ActivityTypeDto | null;
   source: Source;
   isPaused: boolean;
+  isIdle: boolean;
   segmentStartedAt: string;
   pending: PendingSuggestion | null;
 };
