@@ -396,18 +396,20 @@ pub fn pause(app: &AppHandle) -> TrackingState {
     let mut detector = state.detector.lock().unwrap();
     detector.is_paused = true;
     detector.pending = None;
+    detector.candidate = None;
+
+    // Pausing only stops the clock — it must not clear stable_project /
+    // stable_activity (that's what `commit(None, None, ...)` used to do
+    // here), otherwise the widget shows "Nessun progetto rilevato" instead
+    // of the project that was active before pausing. Closing the open
+    // segment directly, the same way idle detection does, stops time from
+    // accruing without touching what's considered "current".
     let conn = state.db.lock().unwrap();
-    let result = commit(
-        app,
-        &mut detector,
-        &conn,
-        None,
-        None,
-        Source::Manual,
-        None,
-        None,
-        Utc::now(),
-    );
+    if let Err(err) = db::close_open_segment(&conn, Utc::now()) {
+        eprintln!("Pulse: failed to close segment on pause: {err}");
+    }
+    let result = build_tracking_state(&conn, &detector);
+    let _ = app.emit("state-changed", &result);
     emit_toast(app, "Tracciamento in pausa");
     result
 }
