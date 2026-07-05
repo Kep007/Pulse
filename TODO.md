@@ -47,11 +47,38 @@ partenza per il conteggio live invece di ripartire da zero.
 
 ## 4. Eseguibile .exe distribuibile per altri PC — ✅ fatto
 
-Tauri produce già installer NSIS + MSI autonomi (`npm run build`). Prima
-release pubblicata su GitHub:
-https://github.com/Kep007/Pulse/releases/tag/v0.1.0
+Tauri produce già installer NSIS + MSI autonomi (`npm run build`). Release su
+GitHub: https://github.com/Kep007/Pulse/releases
 
 Nota che resta valida: senza firma del codice, Windows SmartScreen mostra un
 avviso "editore sconosciuto" al primo avvio — non blocca l'installazione ma
 richiede "Ulteriori informazioni" > "Esegui comunque"; risolvibile solo con
-un certificato di code-signing (a pagamento).
+un certificato di code-signing (a pagamento). Deciso di lasciarlo così per
+ora.
+
+### Aggiornamenti automatici — ✅ fatto
+
+L'app controlla da sola all'avvio se c'è una versione più recente su GitHub
+Releases (via `tauri-plugin-updater`) e, se sì, la scarica, verifica, installa
+e riavvia senza bisogno di scaricare nulla manualmente. Lo storico dati non è
+mai a rischio: vive in `%APPDATA%`, separato dalla cartella di installazione.
+
+Per farlo funzionare il repo **Pulse è stato reso pubblico** (era privato —
+gli URL di download delle release di un repo privato non sono raggiungibili
+dall'app senza autenticazione).
+
+**Importante**: la chiave privata che firma gli aggiornamenti è in
+`~/.tauri/pulse-updater.key` su questo PC, generata senza password. Se si
+perde, gli aggiornamenti futuri non potranno più essere firmati con la stessa
+identità (l'updater rifiuterebbe pacchetti firmati con una chiave diversa) —
+vale la pena farne un backup. Ogni nuova release va ricreata con:
+
+```
+# aggiornare la versione a mano in tutti e tre: package.json,
+# src-tauri/tauri.conf.json, src-tauri/Cargo.toml (non c'è un unico posto)
+export TAURI_SIGNING_PRIVATE_KEY="$(cat ~/.tauri/pulse-updater.key)"
+export TAURI_SIGNING_PRIVATE_KEY_PASSWORD=""
+npm run build
+# poi generare latest.json (vedi comandi usati per v0.1.1) e pubblicarlo
+# come GitHub Release insieme ai due installer
+```
