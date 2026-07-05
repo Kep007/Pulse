@@ -27,6 +27,7 @@ export type TrackingState = {
   isPaused: boolean;
   isIdle: boolean;
   segmentStartedAt: string;
+  todaySecondsBeforeSegment: number;
   pending: PendingSuggestion | null;
 };
 

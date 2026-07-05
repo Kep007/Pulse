@@ -52,6 +52,10 @@ pub struct DetectorState {
     /// tracking on the same one without waiting for a fresh detection.
     is_idle: bool,
     segment_started_at: DateTime<Utc>,
+    /// Seconds already tracked today on the current project/activity before
+    /// `segment_started_at` — recomputed by `commit` every time a segment
+    /// opens. See TrackingState::today_seconds_before_segment.
+    today_seconds_before_segment: i64,
     candidate: Option<Candidate>,
     /// An auto-detected project/activity waiting for the user to confirm or
     /// deny it via the toast window or the global confirm shortcut.
@@ -71,6 +75,7 @@ impl DetectorState {
             is_paused: false,
             is_idle: false,
             segment_started_at: now,
+            today_seconds_before_segment: 0,
             candidate: None,
             pending: None,
             suppressed: None,
@@ -517,6 +522,14 @@ fn commit(
         eprintln!("Pulse: failed to write time segment: {err}");
     }
 
+    let today_start = at
+        .date_naive()
+        .and_hms_opt(0, 0, 0)
+        .map(|naive| DateTime::from_naive_utc_and_offset(naive, Utc))
+        .unwrap_or(at);
+    detector.today_seconds_before_segment =
+        db::seconds_tracked_since(conn, project_id, activity_type_id, today_start).unwrap_or(0);
+
     detector.stable_project = project_id;
     detector.stable_activity = activity_type_id;
     detector.source = source;
@@ -553,6 +566,7 @@ pub fn reset_all_data(app: &AppHandle) -> Result<TrackingState, String> {
     detector.source = Source::Auto;
     detector.is_idle = false;
     detector.segment_started_at = now;
+    detector.today_seconds_before_segment = 0;
     detector.candidate = None;
     detector.pending = None;
     detector.suppressed = None;
@@ -587,6 +601,7 @@ fn build_tracking_state(conn: &Connection, detector: &DetectorState) -> Tracking
         is_paused: detector.is_paused,
         is_idle: detector.is_idle,
         segment_started_at: detector.segment_started_at.to_rfc3339(),
+        today_seconds_before_segment: detector.today_seconds_before_segment,
         pending,
     }
 }

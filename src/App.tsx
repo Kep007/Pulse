@@ -46,7 +46,11 @@ type OpenPicker = "project" | "activity" | null;
 
 export function App() {
   const state = useTrackingState();
-  const elapsed = useElapsedSeconds(state?.segmentStartedAt, state?.isPaused ?? false);
+  const elapsed = useElapsedSeconds(
+    state?.segmentStartedAt,
+    state?.isPaused ?? false,
+    state?.todaySecondsBeforeSegment ?? 0,
+  );
   const [openPicker, setOpenPicker] = useState<OpenPicker>(null);
   const [hoverState, setHoverState] = useState<WidgetHoverState>("idle");
   const [isDocked, setIsDocked] = useState(false);

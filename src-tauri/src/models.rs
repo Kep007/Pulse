@@ -56,6 +56,11 @@ pub struct TrackingState {
     /// on the same one the moment input comes back, without re-detecting it.
     pub is_idle: bool,
     pub segment_started_at: String,
+    /// Seconds already tracked today on `project`/`activity_type` before this
+    /// segment started — the widget adds this to its own live count so
+    /// re-entering a project worked on earlier today continues instead of
+    /// restarting from zero.
+    pub today_seconds_before_segment: i64,
     pub pending: Option<PendingSuggestion>,
 }
 

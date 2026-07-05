@@ -345,6 +345,36 @@ pub fn transition_segment(
     tx.commit()
 }
 
+/// Sums the already-closed segments for a project (or, if no project,
+/// activity-only entries) since `since` — the widget's live timer adds this
+/// to its own running count so re-entering a project already worked on
+/// today continues from where it left off instead of restarting at zero.
+/// The segment about to be opened is never included: it has no
+/// `duration_seconds` yet at the point this is called.
+pub fn seconds_tracked_since(
+    conn: &Connection,
+    project_id: Option<i64>,
+    activity_type_id: Option<i64>,
+    since: DateTime<Utc>,
+) -> rusqlite::Result<i64> {
+    match (project_id, activity_type_id) {
+        (None, None) => Ok(0),
+        (Some(project_id), _) => conn.query_row(
+            "SELECT COALESCE(SUM(duration_seconds), 0) FROM time_entries
+             WHERE project_id = ?1 AND started_at >= ?2 AND duration_seconds IS NOT NULL",
+            rusqlite::params![project_id, since.to_rfc3339()],
+            |row| row.get(0),
+        ),
+        (None, Some(activity_type_id)) => conn.query_row(
+            "SELECT COALESCE(SUM(duration_seconds), 0) FROM time_entries
+             WHERE project_id IS NULL AND activity_type_id = ?1
+               AND started_at >= ?2 AND duration_seconds IS NOT NULL",
+            rusqlite::params![activity_type_id, since.to_rfc3339()],
+            |row| row.get(0),
+        ),
+    }
+}
+
 /// Closes the current open segment (if any) without opening a new one —
 /// used when the system goes idle, so the idle stretch is excluded from
 /// every project's tracked time instead of either the previous project

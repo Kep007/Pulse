@@ -1,6 +1,10 @@
 import { useEffect, useState } from "react";
 
-export function useElapsedSeconds(segmentStartedAt: string | undefined, isPaused: boolean) {
+export function useElapsedSeconds(
+  segmentStartedAt: string | undefined,
+  isPaused: boolean,
+  baselineSeconds = 0,
+) {
   const [elapsed, setElapsed] = useState(0);
 
   useEffect(() => {
@@ -12,7 +16,7 @@ export function useElapsedSeconds(segmentStartedAt: string | undefined, isPaused
     const startedAt = new Date(segmentStartedAt).getTime();
 
     function tick() {
-      setElapsed(Math.max(0, Math.floor((Date.now() - startedAt) / 1000)));
+      setElapsed(Math.max(0, baselineSeconds + Math.floor((Date.now() - startedAt) / 1000)));
     }
 
     tick();
@@ -23,7 +27,7 @@ export function useElapsedSeconds(segmentStartedAt: string | undefined, isPaused
 
     const intervalId = window.setInterval(tick, 1000);
     return () => window.clearInterval(intervalId);
-  }, [segmentStartedAt, isPaused]);
+  }, [segmentStartedAt, isPaused, baselineSeconds]);
 
   return elapsed;
 }
