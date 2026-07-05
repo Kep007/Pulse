@@ -2,27 +2,8 @@ import { useMemo } from "react";
 import { formatHoursMinutes, formatMonthIt } from "../../lib/format";
 import type { BreakdownEntry, BreakdownMetric, MonthBucket } from "../../lib/types";
 import { BreakdownTooltip } from "./BreakdownTooltip";
-import { BUCKET_COLORS } from "./Heatmap";
+import { intensityColor } from "./intensityColor";
 import { TooltipTrigger } from "./TooltipTrigger";
-
-// Bar color scales with each month's share of the busiest month (not raw
-// hours, since a "big" month varies a lot by user) — reusing the heatmap's
-// ramp so both charts read as the same visual language.
-function intensityColor(ratio: number) {
-  if (ratio <= 0) {
-    return BUCKET_COLORS[0];
-  }
-  if (ratio < 0.25) {
-    return BUCKET_COLORS[1];
-  }
-  if (ratio < 0.5) {
-    return BUCKET_COLORS[2];
-  }
-  if (ratio < 0.75) {
-    return BUCKET_COLORS[3];
-  }
-  return BUCKET_COLORS[4];
-}
 
 // When a specific project/activity is selected (filterId), a bar should
 // reflect only its share of the month instead of the month's grand total —

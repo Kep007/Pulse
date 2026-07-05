@@ -523,6 +523,154 @@
   text-transform: capitalize;
 }
 
+/* Shared empty-state line for any dashboard card with nothing to show yet. */
+.dashboard-empty {
+  margin: 0;
+  padding: 20px 0;
+  font-size: 13px;
+  color: #898781;
+  text-align: center;
+}
+
+/* Stat tiles (Riepilogo / Dettaglio progetto-attività) */
+
+.stat-tile-row {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+}
+
+.stat-tile {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px 14px;
+  border-radius: 10px;
+  background: #f8fafc;
+}
+
+.stat-tile-label {
+  font-size: 11px;
+  color: #667085;
+}
+
+.stat-tile-value {
+  font-size: 18px;
+  font-weight: 600;
+  color: #172033;
+}
+
+/* Time breakdown (part-to-whole: a single horizontal stacked bar, per the
+   dataviz skill's form table — not a pie/donut). */
+
+.breakdown {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.breakdown-bar {
+  display: flex;
+  height: 20px;
+  gap: 2px;
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.breakdown-segment {
+  min-width: 4px;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+}
+
+.breakdown-legend {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 8px 16px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.breakdown-legend li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.breakdown-swatch {
+  flex-shrink: 0;
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+}
+
+.breakdown-legend-name {
+  flex-shrink: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  color: #172033;
+}
+
+.breakdown-legend-value {
+  flex-shrink: 0;
+  margin-left: auto;
+  font-size: 12px;
+  color: #667085;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* Ranking (magnitude comparison — color is the sequential heatmap ramp, not
+   categorical: bar length already shows rank, the name label shows identity). */
+
+.ranking-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.ranking-row {
+  display: grid;
+  grid-template-columns: minmax(0, 140px) 1fr auto;
+  align-items: center;
+  gap: 10px;
+}
+
+.ranking-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  color: #172033;
+}
+
+.ranking-track {
+  height: 14px;
+  border-radius: 4px;
+  background: #f1f3f6;
+}
+
+.ranking-bar {
+  height: 100%;
+  border-radius: 4px;
+}
+
+.ranking-value {
+  font-size: 12px;
+  color: #667085;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
 /* Projects */
 
 .projects-view {

@@ -27,7 +27,7 @@ fn show_home(app: &AppHandle) {
 
 /// Shows or hides the widget and keeps the tray menu label in sync, so the
 /// menu always reflects the action it's about to perform rather than a
-/// static "Mostra Pulse" that does nothing when the widget is already shown.
+/// static "Mostra Widget" that does nothing when the widget is already shown.
 fn toggle_widget(app: &AppHandle, toggle_item: &MenuItem<tauri::Wry>) {
     let Some(window) = app.get_webview_window("main") else {
         return;
@@ -35,11 +35,11 @@ fn toggle_widget(app: &AppHandle, toggle_item: &MenuItem<tauri::Wry>) {
     let is_visible = window.is_visible().unwrap_or(true);
     if is_visible {
         let _ = window.hide();
-        let _ = toggle_item.set_text("Mostra Pulse");
+        let _ = toggle_item.set_text("Mostra Widget");
     } else {
         let _ = window.show();
         let _ = window.set_focus();
-        let _ = toggle_item.set_text("Nascondi Pulse");
+        let _ = toggle_item.set_text("Nascondi Widget");
     }
 }
 
@@ -113,9 +113,9 @@ pub fn run() {
                 .map(|w| w.is_visible().unwrap_or(true))
                 .unwrap_or(true);
             let toggle_label = if widget_visible {
-                "Nascondi Pulse"
+                "Nascondi Widget"
             } else {
-                "Mostra Pulse"
+                "Mostra Widget"
             };
             let toggle = MenuItem::with_id(app, "toggle", toggle_label, true, None::<&str>)?;
             let dashboard =
@@ -145,7 +145,7 @@ pub fn run() {
                     } = event
                     {
                         show_widget(tray.app_handle());
-                        let _ = toggle.set_text("Nascondi Pulse");
+                        let _ = toggle.set_text("Nascondi Widget");
                     }
                 })
                 .build(app)?;

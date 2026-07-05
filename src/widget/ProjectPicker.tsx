@@ -1,7 +1,7 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef } from "react";
 import { IconCheck } from "../components/icons";
-import { listProjects, setActiveProject } from "../lib/tauri";
-import type { ProjectDto } from "../lib/types";
+import { setActiveProject } from "../lib/tauri";
+import { useProjects } from "../lib/useProjects";
 
 type ProjectPickerProps = {
   activeProjectId: number | null;
@@ -9,12 +9,8 @@ type ProjectPickerProps = {
 };
 
 export function ProjectPicker({ activeProjectId, onClose }: ProjectPickerProps) {
-  const [projects, setProjects] = useState<ProjectDto[]>([]);
+  const projects = useProjects();
   const rootRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    listProjects().then(setProjects);
-  }, []);
 
   useEffect(() => {
     function handlePointerDown(event: PointerEvent) {

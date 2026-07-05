@@ -26,7 +26,7 @@ const CELL_SIZE = 20;
 const CELL_GAP = 4;
 const MONTH_GAP = 30;
 const DAY_LABELS = ["L", "M", "M", "G", "V", "S", "D"];
-const MONTH_LABELS_IT = [
+export const MONTH_LABELS_IT = [
   "Gennaio",
   "Febbraio",
   "Marzo",
