@@ -595,6 +595,31 @@
   color: #172033;
 }
 
+/* Modifier for a .stat-tile-value that's a TooltipTrigger button (has a
+   detail breakdown behind it) rather than plain text — resets native button
+   chrome and adds a dashed underline as the "there's more here" affordance.
+   text-decoration-style: dashed has no way to control dash/gap length, so
+   the underline is a repeating background gradient instead — 2px dash, 2px
+   gap, sitting 5px below the text. */
+.stat-tile-value-hoverable {
+  border: 0;
+  background-color: transparent;
+  background-image: linear-gradient(to right, #c3c2b7 2px, transparent 2px);
+  background-size: 4px 1px;
+  background-repeat: repeat-x;
+  background-position: left bottom;
+  padding: 0 0 5px;
+  font: inherit;
+  text-align: left;
+  cursor: help;
+}
+
+.stat-tile-value-hoverable:hover,
+.stat-tile-value-hoverable:focus-visible {
+  color: #2563eb;
+  background-image: linear-gradient(to right, #2563eb 2px, transparent 2px);
+}
+
 /* Time breakdown (part-to-whole: a single horizontal stacked bar, per the
    dataviz skill's form table — not a pie/donut). */
 

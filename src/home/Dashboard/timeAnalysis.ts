@@ -1,3 +1,4 @@
+import { capitalize, formatDayMonthIt, formatDayMonthYearIt, formatMonthIt } from "../../lib/format";
 import type { BreakdownEntry, BreakdownMetric, DayBucket, MonthBucket } from "../../lib/types";
 
 export const WEEKDAY_LABELS_IT = [
@@ -94,4 +95,65 @@ export function computeEntityStats(
     bestMonth,
     bestWeekday,
   };
+}
+
+// "Storico dei tempi" behind the total: one row per month with time on this
+// entity, most recent first (monthlyBuckets comes back oldest-first from the
+// backend). The row cap lives in the tooltip component, same as every other
+// breakdown tooltip in the app.
+export function monthlyHistoryEntries(
+  monthlyBuckets: MonthBucket[],
+  metric: BreakdownMetric,
+  filterId: number,
+): BreakdownEntry[] {
+  const rows: BreakdownEntry[] = [];
+  for (const bucket of monthlyBuckets) {
+    const entry = entriesOf(bucket, metric).find((item) => item.id === filterId);
+    if (entry && entry.seconds > 0) {
+      rows.push({ id: rows.length, name: capitalize(formatMonthIt(bucket.month)), color: null, seconds: entry.seconds });
+    }
+  }
+  return rows.reverse();
+}
+
+// Behind "Mese migliore": one row per day inside that specific month with
+// time on this entity, in calendar order.
+export function monthDailyEntries(
+  dailyBuckets: DayBucket[],
+  metric: BreakdownMetric,
+  filterId: number,
+  month: string,
+): BreakdownEntry[] {
+  const rows: BreakdownEntry[] = [];
+  for (const bucket of dailyBuckets) {
+    if (!bucket.date.startsWith(month)) {
+      continue;
+    }
+    const entry = entriesOf(bucket, metric).find((item) => item.id === filterId);
+    if (entry && entry.seconds > 0) {
+      rows.push({ id: rows.length, name: formatDayMonthIt(bucket.date), color: null, seconds: entry.seconds });
+    }
+  }
+  return rows;
+}
+
+// Behind "Giorno migliore": every past occurrence of that weekday with time
+// on this entity (e.g. every Saturday ever), most recent first.
+export function weekdayHistoryEntries(
+  dailyBuckets: DayBucket[],
+  metric: BreakdownMetric,
+  filterId: number,
+  weekday: number,
+): BreakdownEntry[] {
+  const rows: BreakdownEntry[] = [];
+  for (const bucket of dailyBuckets) {
+    if (weekdayIndex(bucket.date) !== weekday) {
+      continue;
+    }
+    const entry = entriesOf(bucket, metric).find((item) => item.id === filterId);
+    if (entry && entry.seconds > 0) {
+      rows.push({ id: rows.length, name: formatDayMonthYearIt(bucket.date), color: null, seconds: entry.seconds });
+    }
+  }
+  return rows.reverse();
 }
