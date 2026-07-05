@@ -1,11 +1,10 @@
 import { useEffect, useState } from "react";
 import { getDailySummary, getMonthlySummary } from "../../lib/tauri";
 import type { BreakdownMetric, DayBucket, MonthBucket } from "../../lib/types";
-import { Heatmap } from "./Heatmap";
+import { Heatmap, MONTHS_BACK } from "./Heatmap";
 import { MonthlySummary } from "./MonthlySummary";
 import { RangeSwitcher } from "./RangeSwitcher";
 
-const HEATMAP_WEEKS = 26;
 const MONTHLY_MONTHS = 12;
 
 function isoDate(date: Date) {
@@ -19,8 +18,12 @@ export function DashboardView() {
 
   useEffect(() => {
     const to = new Date();
+    // Matches Heatmap's own month-block range: the 1st of the month
+    // (MONTHS_BACK - 1) months ago, so fetched data covers exactly what's
+    // rendered (that range shifts forward on its own as months pass).
     const from = new Date(to);
-    from.setUTCDate(from.getUTCDate() - HEATMAP_WEEKS * 7);
+    from.setUTCDate(1);
+    from.setUTCMonth(from.getUTCMonth() - (MONTHS_BACK - 1));
     getDailySummary(isoDate(from), isoDate(to)).then(setDailyBuckets);
 
     const monthlyFrom = new Date(to);

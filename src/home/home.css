@@ -190,7 +190,7 @@
 
 .dashboard-card h2 {
   margin: 0 0 14px;
-  font-size: 13px;
+  font-size: 20px;
   font-weight: 600;
   color: #475467;
 }
@@ -198,64 +198,154 @@
 /* Heatmap */
 
 .heatmap {
+  position: relative;
+}
+
+/* Frozen year + weekday-letters column, painted on top of .heatmap-scroll's
+   left edge (absolute, not a flow child of it) — see Heatmap.tsx for why
+   this replaced a position: sticky column. */
+.heatmap-frozen {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 2;
+  width: 34px;
+  background: #ffffff;
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  overflow-x: auto;
+  gap: 10px;
 }
 
-.heatmap-months {
-  display: flex;
-  gap: 3px;
-  padding-left: 20px;
-}
-
-.heatmap-month-label {
-  width: 11px;
-  flex-shrink: 0;
-  font-size: 10px;
+.heatmap-year-corner {
+  height: 16px;
+  line-height: 16px;
+  text-align: left;
+  font-size: 12px;
+  font-weight: 700;
   color: #898781;
-}
-
-.heatmap-body {
-  display: flex;
-  gap: 4px;
 }
 
 .heatmap-day-labels {
   display: flex;
   flex-direction: column;
-  gap: 3px;
-  width: 16px;
-  flex-shrink: 0;
+  gap: 4px;
+  /* Mirrors .heatmap-grid's own 3px top/bottom padding so the letters stay
+     aligned with their row — without it, the frozen overlay is 6px shorter
+     than the real grid behind it and the bottom (Sunday) row peeks out. */
+  padding: 3px 0;
 }
 
 .heatmap-day-labels span {
-  height: 11px;
-  font-size: 9px;
-  line-height: 11px;
+  height: 20px;
+  line-height: 20px;
+  font-size: 12px;
+  font-weight: 700;
+  color: #898781;
+}
+
+.heatmap-scroll {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  overflow-x: auto;
+  /* Reserves room for .heatmap-frozen (34px) plus a 4px gap before the real
+     content starts, so at scrollLeft: 0 the first real column isn't hidden
+     underneath the overlay. */
+  padding-left: 38px;
+  /* Panning is drag-driven (see the pointer handlers in Heatmap.tsx), not
+     wheel- or scrollbar-driven — WebView2's native scrollbar (Fluent-style,
+     with end arrows) can't be restyled via ::-webkit-scrollbar, so it's
+     hidden outright rather than left looking like an unstyled leftover. */
+  cursor: grab;
+  user-select: none;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+  /* Without this, WebView2 layers its own native momentum/kinetic panning
+     on top of the manual scrollLeft assignments in Heatmap.tsx's pointer
+     handlers — the two fight, which is what made the pan keep drifting
+     after a fast release instead of stopping right there. */
+  touch-action: none;
+}
+
+.heatmap-scroll:active {
+  cursor: grabbing;
+}
+
+.heatmap-scroll::-webkit-scrollbar {
+  display: none;
+}
+
+/* Minimal stand-in scroll indicator (updateThumb in Heatmap.tsx writes the
+   thumb's width/left directly). Aligned under the scrollable content, not
+   the frozen year/day column to its left. */
+.heatmap-scrollbar-track {
+  position: relative;
+  height: 3px;
+  margin-top: 8px;
+  margin-left: 38px;
+  border-radius: 999px;
+  background: rgba(17, 24, 39, 0.06);
+}
+
+.heatmap-scrollbar-thumb {
+  position: absolute;
+  top: 0;
+  left: 0;
+  height: 100%;
+  border-radius: 999px;
+  background: rgba(17, 24, 39, 0.22);
+}
+
+.heatmap-months {
+  display: flex;
+  gap: 4px;
+}
+
+/* Gap before every month but the first (MONTH_GAP in Heatmap.tsx) is set
+   inline per-label — it needs to be the same value used for the matching
+   .heatmap-week gap below, and for the scroll-position math that drives the
+   frozen year corner, so Heatmap.tsx owns that one number. */
+.heatmap-month-label {
+  flex: 0 0 20px;
+  height: 16px;
+  line-height: 16px;
+  font-size: 12px;
+  font-weight: 700;
   color: #898781;
 }
 
 .heatmap-grid {
   display: flex;
-  gap: 3px;
+  gap: 4px;
+  /* Gives the hover-outline on the top (Monday) and bottom (Sunday) rows
+     room to paint fully — without it, .heatmap-scroll's forced overflow-y
+     (a side effect of overflow-x: auto) clips a sliver of it. */
+  padding: 3px 0;
 }
 
 .heatmap-week {
+  flex: 0 0 20px;
   display: flex;
   flex-direction: column;
-  gap: 3px;
+  gap: 4px;
 }
 
 .heatmap-cell {
   position: relative;
-  width: 11px;
-  height: 11px;
+  width: 20px;
+  height: 20px;
   padding: 0;
   border: 0;
-  border-radius: 3px;
+  border-radius: 4px;
   cursor: pointer;
+}
+
+/* While panning, mouseenter/mouseleave still fire for whatever cell is
+   under the cursor (setPointerCapture only redirects pointer events, not
+   these) — each one opened a tooltip portal mid-drag, which is what made
+   the pan stutter. */
+.heatmap-scroll.dragging .heatmap-cell {
+  pointer-events: none;
 }
 
 .heatmap-cell.future {
@@ -269,28 +359,28 @@
   outline-offset: 1px;
 }
 
-.heatmap-legend {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  font-size: 10px;
-  color: #898781;
+/* Shared cell/bar hover tooltip. Rendered through a portal to <body> and
+   positioned with `fixed` coordinates computed in TooltipTrigger.tsx (rather
+   than absolutely inside the trigger), so it can't be clipped by — or
+   inflate the scrollable size of — an ancestor like the heatmap's
+   horizontally-scrolling grid. Placement (above/below the trigger) is
+   chosen per-hover from the actual space available, not fixed per chart. */
+
+.cell-tooltip-portal {
+  position: fixed;
+  z-index: 50;
+  pointer-events: none;
 }
 
-.legend-swatch {
-  width: 11px;
-  height: 11px;
-  border-radius: 3px;
+.cell-tooltip-portal-top {
+  transform: translate(-50%, -100%);
 }
 
-/* Shared cell/bar hover tooltip */
+.cell-tooltip-portal-bottom {
+  transform: translate(-50%, 0);
+}
 
 .cell-tooltip {
-  position: absolute;
-  z-index: 5;
-  bottom: calc(100% + 8px);
-  left: 50%;
-  transform: translateX(-50%);
   min-width: 160px;
   padding: 10px 12px;
   border-radius: 8px;
@@ -300,23 +390,13 @@
   font-size: 11px;
   line-height: 1.4;
   box-shadow: 0 8px 20px rgba(17, 24, 39, 0.3);
-  opacity: 0;
-  visibility: hidden;
-  pointer-events: none;
-  transition: opacity 0.1s ease;
-}
-
-.heatmap-cell:hover .cell-tooltip,
-.heatmap-cell:focus-visible .cell-tooltip,
-.monthly-bar:hover .cell-tooltip,
-.monthly-bar:focus-visible .cell-tooltip {
-  opacity: 1;
-  visibility: visible;
 }
 
 .cell-tooltip strong {
   display: block;
+  color: #ffffff;
   font-size: 12px;
+  font-weight: 600;
   text-transform: capitalize;
 }
 
@@ -352,9 +432,9 @@
 
 .monthly-summary {
   display: flex;
-  align-items: flex-end;
+  align-items: stretch;
   gap: 10px;
-  height: 160px;
+  height: 190px;
 }
 
 .monthly-bar-column {
@@ -363,17 +443,37 @@
   display: flex;
   flex-direction: column;
   align-items: center;
-  justify-content: flex-end;
-  height: 100%;
   gap: 6px;
+}
+
+.monthly-bar-value {
+  height: 14px;
+  font-size: 10px;
+  color: #667085;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* Full-height backdrop behind the bar so short bars still read as a bar
+   sitting in a track, instead of a faint dot floating near the baseline. */
+.monthly-bar-track {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  max-width: 36px;
+  display: flex;
+  align-items: flex-end;
+  border-radius: 6px;
+  background: #f1f3f6;
 }
 
 .monthly-bar {
   position: relative;
   width: 100%;
-  max-width: 28px;
+  min-height: 6px;
   border: 0;
-  border-radius: 4px 4px 0 0;
+  border-radius: 6px;
   cursor: pointer;
 }
 
