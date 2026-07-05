@@ -314,8 +314,29 @@ fn detection_label(conn: &Connection, project_id: Option<i64>, activity_id: Opti
     }
 }
 
+/// Called both internally (always after setup() has run) and directly from
+/// the frontend's very first IPC call on mount — which can arrive before
+/// `app.manage(AppState)` finishes on a slow first run (fresh install,
+/// migrations running for the first time). `app.state()` panics in that
+/// case, and a panic here (inside an IPC command handler, which is an FFI
+/// callback from the webview) can't unwind and hard-crashes the whole
+/// process instead of surfacing a normal error — so this uses the
+/// non-panicking `try_state` and returns a plain "nothing tracked yet"
+/// default instead, which the frontend already renders correctly on its own
+/// (the "state-changed" event fills in the real state moments later).
 pub fn get_current_state(app: &AppHandle) -> TrackingState {
-    let state = app.state::<AppState>();
+    let Some(state) = app.try_state::<AppState>() else {
+        return TrackingState {
+            project: None,
+            activity_type: None,
+            source: Source::Auto,
+            is_paused: false,
+            is_idle: false,
+            segment_started_at: Utc::now().to_rfc3339(),
+            today_seconds_before_segment: 0,
+            pending: None,
+        };
+    };
     let detector = state.detector.lock().unwrap();
     let conn = state.db.lock().unwrap();
     build_tracking_state(&conn, &detector)
