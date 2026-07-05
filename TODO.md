@@ -38,34 +38,20 @@ sbagliato se si scrive per un progetto diverso da quello tracciato.
 
 Deciso di rimandare la decisione su come procedere.
 
-## 3. Il timer non riprende da dove era rimasto nello stesso giorno
+## 3. Il timer non riprende da dove era rimasto nello stesso giorno — ✅ fatto
 
-**Difficoltà: media** — oggi il timer del widget mostra solo la durata del
-segmento *corrente*: se lavori su IFO, poi GENERAL, poi torni su IFO, il
-widget riparte da ~0 invece di continuare dal totale già accumulato su IFO
-quella giornata (il dato nel database è comunque corretto — ogni passaggio è
-una riga separata sommata correttamente nei report — è solo il numero
-*live* nel widget a non essere cumulativo).
+Quando un progetto/attività viene (ri)attivato, il backend somma i secondi
+già tracciati su quell'entità *oggi* (segmenti già chiusi) ed espone il
+totale come `todaySecondsBeforeSegment`; il widget lo usa come base di
+partenza per il conteggio live invece di ripartire da zero.
 
-Per risolverlo serve: quando si (ri)attiva un progetto/attività, calcolare
-quanti secondi sono già stati tracciati su quell'entità *oggi* (somma delle
-righe già chiuse) e passare questo totale al frontend come base di partenza,
-sommandolo poi al conteggio live del segmento aperto.
+## 4. Eseguibile .exe distribuibile per altri PC — ✅ fatto
 
-## 4. Eseguibile .exe distribuibile per altri PC
+Tauri produce già installer NSIS + MSI autonomi (`npm run build`). Prima
+release pubblicata su GitHub:
+https://github.com/Kep007/Pulse/releases/tag/v0.1.0
 
-**Difficoltà: bassa-media** — Tauri include già un bundler che produce un
-installer NSIS (`tauri build`), completo e autonomo (non serve un
-"download completo" separato, l'installer contiene già tutto). Il lavoro
-vero è:
-
-- configurare `tauri.conf.json` per il bundle Windows (icona, nome, versione);
-- pubblicare l'installer come **GitHub Release** (non va committato nel
-  repo — i binari nella cronologia git gonfiano il repository);
-- opzionale ma da tenere presente: senza firma del codice, Windows
-  SmartScreen mostra un avviso "editore sconosciuto" al primo avvio — non
-  blocca l'installazione ma è meno professionale; risolvibile solo con un
-  certificato di code-signing (a pagamento).
-
-Percorso più semplice dei quattro, in gran parte configurazione più che
-sviluppo.
+Nota che resta valida: senza firma del codice, Windows SmartScreen mostra un
+avviso "editore sconosciuto" al primo avvio — non blocca l'installazione ma
+richiede "Ulteriori informazioni" > "Esegui comunque"; risolvibile solo con
+un certificato di code-signing (a pagamento).
