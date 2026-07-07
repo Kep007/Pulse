@@ -22,20 +22,19 @@
         "resizable": false,
         "skipTaskbar": true,
         "shadow": false,
-        "visible": true
+        "visible": false
       },
       {
         "label": "home",
         "title": "Pulse",
         "width": 820,
-        "height": 600,
-        "minWidth": 720,
-        "minHeight": 480,
-        "decorations": true,
+        "height": 636,
+        "decorations": false,
         "transparent": false,
         "alwaysOnTop": false,
-        "resizable": true,
+        "resizable": false,
         "skipTaskbar": false,
+        "shadow": true,
         "visible": false
       },
       {

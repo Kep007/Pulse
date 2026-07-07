@@ -6,6 +6,7 @@ export { IconChart } from "./IconChart";
 export { IconHome } from "./IconHome";
 export { IconTag } from "./IconTag";
 export { IconClose } from "./IconClose";
+export { IconMinimize } from "./IconMinimize";
 export { IconChevron } from "./IconChevron";
 export { IconCheck } from "./IconCheck";
 export { IconInfo } from "./IconInfo";
