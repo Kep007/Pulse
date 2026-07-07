@@ -238,7 +238,10 @@ pub fn run() {
                 .on_menu_event(move |app, event| match event.id.as_ref() {
                     "toggle" => toggle_widget(app, &toggle_for_menu),
                     "dashboard" => show_home(app),
-                    "quit" => app.exit(0),
+                    "quit" => {
+                        detector::close_for_shutdown(app);
+                        app.exit(0);
+                    }
                     _ => {}
                 })
                 .on_tray_icon_event(move |tray, event| {

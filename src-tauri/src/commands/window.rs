@@ -11,6 +11,7 @@ pub fn open_home_window(app: AppHandle) {
 
 #[tauri::command]
 pub fn quit_app(app: AppHandle) {
+    detector::close_for_shutdown(&app);
     app.exit(0);
 }
 

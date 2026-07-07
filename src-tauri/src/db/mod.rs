@@ -30,7 +30,7 @@ pub fn open(app: &AppHandle) -> rusqlite::Result<Connection> {
     conn.pragma_update(None, "journal_mode", "WAL")?;
     conn.pragma_update(None, "foreign_keys", true)?;
     run_migrations(&conn)?;
-    close_dangling_segments(&conn, Utc::now())?;
+    close_dangling_segments(&conn)?;
 
     Ok(conn)
 }
@@ -61,16 +61,16 @@ fn run_migrations(conn: &Connection) -> rusqlite::Result<()> {
     Ok(())
 }
 
-/// Closes any segment left open by an unclean previous shutdown, so a crash
-/// never silently keeps accumulating time against a stale project.
-fn close_dangling_segments(conn: &Connection, ended_at: DateTime<Utc>) -> rusqlite::Result<()> {
-    conn.execute(
-        "UPDATE time_entries
-         SET ended_at = ?1,
-             duration_seconds = CAST((julianday(?1) - julianday(started_at)) * 86400 AS INTEGER)
-         WHERE ended_at IS NULL",
-        [ended_at.to_rfc3339()],
-    )?;
+/// Discards any segment left open by an unclean previous shutdown (crash,
+/// force-kill, power loss). A clean quit always closes its open segment
+/// itself (see `detector::close_for_shutdown`) before the process exits, so
+/// by the time this runs at the next startup a leftover open row only means
+/// the real end time was never recorded — there's no reliable timestamp to
+/// close it with, so rather than stamping it with this restart's time (which
+/// would silently bill the entire closed-app stretch to that project) the
+/// ambiguous segment is dropped.
+fn close_dangling_segments(conn: &Connection) -> rusqlite::Result<()> {
+    conn.execute("DELETE FROM time_entries WHERE ended_at IS NULL", [])?;
     Ok(())
 }
 

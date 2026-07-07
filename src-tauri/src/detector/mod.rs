@@ -207,9 +207,26 @@ fn tick(app: &AppHandle) {
         detector.suppressed = None;
     }
 
+    // Already surfaced this exact suggestion and it's awaiting a decision via
+    // the toast — nothing new to do until the user confirms/denies it or the
+    // foreground detection changes to something else.
+    if detector.pending.as_ref() == Some(&detected) {
+        return;
+    }
+
     if detected.project == detector.stable_project && detected.activity == detector.stable_activity
     {
         detector.candidate = None;
+        // The foreground window drifted back to the manually-pinned
+        // project/activity before the pending suggestion was acted on — drop
+        // it and let the toast auto-dismiss instead of leaving a stale
+        // confirm prompt around.
+        if detector.pending.take().is_some() {
+            let conn = state.db.lock().unwrap();
+            let tracking_state = build_tracking_state(&conn, &detector);
+            drop(conn);
+            let _ = app.emit("state-changed", &tracking_state);
+        }
         return;
     }
 
@@ -286,8 +303,10 @@ fn tick(app: &AppHandle) {
         return;
     }
 
+    // A manually-pinned project/activity stays maximum priority: keep
+    // tracking it uninterrupted and only surface the switch as a suggestion
+    // — the timer must not stop just because a confirmation is pending.
     detector.pending = Some(detected.clone());
-    detector.is_paused = true;
 
     let conn = state.db.lock().unwrap();
     let tracking_state = build_tracking_state(&conn, &detector);
@@ -560,6 +579,22 @@ fn commit(
     let state = build_tracking_state(conn, detector);
     let _ = app.emit("state-changed", &state);
     state
+}
+
+/// Closes whatever segment is currently open, without starting a new one —
+/// call this right before the app actually quits (tray "Esci", the quit
+/// command) so the stretch while the app is closed is never later absorbed
+/// into whatever project happens to resume at next launch. Uses `try_state`
+/// since quitting can in principle race very early startup before
+/// `AppState` is managed.
+pub fn close_for_shutdown(app: &AppHandle) {
+    let Some(state) = app.try_state::<AppState>() else {
+        return;
+    };
+    let conn = state.db.lock().unwrap();
+    if let Err(err) = db::close_open_segment(&conn, Utc::now()) {
+        log::error!("failed to close segment on shutdown: {err}");
+    }
 }
 
 fn emit_toast(app: &AppHandle, text: &str) {
