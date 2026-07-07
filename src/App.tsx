@@ -23,7 +23,11 @@ const SWITCH_ICON_SIZE = 18;
 // footprint — see the measureChipRef sizing effect below — rather than
 // leaving a fixed gap of dead space that the column's justify-content:
 // center would otherwise split evenly above and below the remaining rows.
-const EXPANDED_HEIGHT = 132;
+// +8 over the rows' own content height accounts for .drag-zone's wider
+// row-gap (see styles.css), which pushes the name row below the corner
+// timer's box — without the extra height, that push would come out of the
+// activity chip/action buttons' space instead, clipping them.
+const EXPANDED_HEIGHT = 140;
 // .activity-chip's margin-top (-6px) eats back 6 of the .widget flex gap's
 // 8px, netting a 2px gap above it — the only piece of its footprint that
 // isn't part of its own measured box.
@@ -37,8 +41,11 @@ const NAME_ROW_GAP = 4;
 // Projects tab), so the window only ever needs to grow up to this many
 // characters' worth of width — anything longer (including the "no project
 // detected" fallback message, which runs well past this on its own) gets
-// ellipsized instead of pushing the pill wider indefinitely.
-const MAX_NAME_CHARS = 20;
+// ellipsized instead of pushing the pill wider indefinitely. Kept lower than
+// it looks like it needs to be (was 20) so the expanded pill's inline-switch
+// button has room to sit comfortably next to the name rather than pushing
+// right up against the corner timer.
+const MAX_NAME_CHARS = 15;
 
 const PICKER_SIZE = { width: MAX_COLLAPSED_WIDTH, height: 320 };
 

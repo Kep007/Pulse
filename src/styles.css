@@ -86,8 +86,18 @@ button {
      column-gap separates dot/name/time from each other. The dot and time
      are siblings of project-name-row (not of a wrapper spanning the label
      too), so they land on the same grid row as the name and stay vertically
-     centered on it — whether or not the label row above is present. */
-  gap: 2px 8px;
+     centered on it — whether or not the label row above is present.
+     Row-gap is wider than it looks like it needs to be: .label-row's timer
+     (see `.label-row time` below) is absolutely positioned and 32px tall,
+     taller than the label row's own in-flow content, so its box bled a few
+     px past where the name row started — overlapping the inline-switch
+     button next to the project name regardless of how long that name was
+     (the button always trails the name at the same vertical position, so a
+     wider window never helped). Widening the row-gap instead pushes the
+     name row below the timer's box outright, which is why EXPANDED_HEIGHT
+     in App.tsx grew by the same amount to keep the rows below from being
+     pushed past the window's bottom edge. */
+  gap: 10px 8px;
   user-select: none;
 }
 
