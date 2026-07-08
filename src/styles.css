@@ -59,7 +59,11 @@ button {
 .widget.expanded {
   border-radius: 14px;
   padding-left: 12px;
-  padding-right: 12px;
+  /* Extra 16px over the left side's 12px (see EXPANDED_PADDING_RIGHT_EXTRA
+     in App.tsx, which sizes the window to match) — widens the horizontal
+     gap between the inline-switch button and the window's right edge, where
+     the corner timer sits, by request. */
+  padding-right: 28px;
 }
 
 /* Collapsed pill only: less side padding than top/bottom (WIDGET_PADDING in
@@ -96,7 +100,9 @@ button {
      wider window never helped). Widening the row-gap instead pushes the
      name row below the timer's box outright, which is why EXPANDED_HEIGHT
      in App.tsx grew by the same amount to keep the rows below from being
-     pushed past the window's bottom edge. */
+     pushed past the window's bottom edge. (Extra horizontal breathing room
+     between the switch button and the timer is handled separately, via
+     .widget.expanded's padding-right — see below.) */
   gap: 10px 8px;
   user-select: none;
 }

@@ -29,6 +29,7 @@
         "title": "Pulse",
         "width": 820,
         "height": 636,
+        "center": true,
         "decorations": false,
         "transparent": false,
         "alwaysOnTop": false,

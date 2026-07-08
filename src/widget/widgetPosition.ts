@@ -16,6 +16,18 @@ export async function setSavedCorner(corner: string) {
   await store.save();
 }
 
+const DEFAULT_SCALE = 1;
+
+/** Widget size multiplier (CSS transform, not a layout change — see App.tsx). */
+export async function getSavedScale(): Promise<number> {
+  return (await store.get<number>("scale")) ?? DEFAULT_SCALE;
+}
+
+export async function setSavedScale(scale: number) {
+  await store.set("scale", scale);
+  await store.save();
+}
+
 /** Docks the widget to its last-used screen corner (bottom-right on first run). */
 export async function dockToSavedCorner(width: number, height: number) {
   const corner = await getSavedCorner();

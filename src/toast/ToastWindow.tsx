@@ -4,9 +4,16 @@ import { currentMonitor, getCurrentWindow } from "@tauri-apps/api/window";
 import { useEffect, useRef, useState } from "react";
 import { confirmPendingSuggestion, denyPendingSuggestion, getCurrentState } from "../lib/tauri";
 import type { PendingSuggestion, ToastMessage, TrackingState } from "../lib/types";
+import { getSavedCorner } from "../widget/widgetPosition";
 import "./toast.css";
 
 const MARGIN = 16;
+// The widget's own collapsed height (App.tsx's COLLAPSED_HEIGHT) — kept in
+// sync by hand rather than imported, same as MARGIN above, since App.tsx is
+// a page root, not a constants module. Used to stack the toast just outside
+// the widget's pill rather than the screen corner, so it never covers it.
+const WIDGET_COLLAPSED_HEIGHT = 48;
+const TOAST_WIDGET_GAP = 12;
 const INFO_SIZE = { width: 300, height: 56 };
 const CONFIRM_SIZE = { width: 320, height: 122 };
 const INFO_LIFETIME_MS = 3200;
@@ -113,12 +120,29 @@ export function ToastWindow() {
         // looked like notifications never appeared at all.
         const workAreaSize = monitor.workArea.size.toLogical(scale);
         const workAreaPosition = monitor.workArea.position.toLogical(scale);
-        await win.setPosition(
-          new LogicalPosition(
-            workAreaPosition.x + workAreaSize.width - size.width - MARGIN,
-            workAreaPosition.y + workAreaSize.height - size.height - MARGIN,
-          ),
-        );
+        const corner = await getSavedCorner();
+        const isRight = corner.includes("right");
+        const isBottom = corner.includes("bottom");
+
+        // Mirrors the widget's own corner math (see widgetPosition.ts) so
+        // the toast's left/right edge lines up with the widget's — then
+        // stacks vertically just outside the widget's pill (above it when
+        // the widget sits at the bottom, below when it sits at the top)
+        // instead of sharing the same corner, which would otherwise cover
+        // the widget it's supposed to be a notification *about*.
+        const x = isRight
+          ? workAreaPosition.x + workAreaSize.width - size.width - MARGIN
+          : workAreaPosition.x + MARGIN;
+        const y = isBottom
+          ? workAreaPosition.y +
+            workAreaSize.height -
+            MARGIN -
+            WIDGET_COLLAPSED_HEIGHT -
+            TOAST_WIDGET_GAP -
+            size.height
+          : workAreaPosition.y + MARGIN + WIDGET_COLLAPSED_HEIGHT + TOAST_WIDGET_GAP;
+
+        await win.setPosition(new LogicalPosition(x, y));
       }
 
       await win.show();
