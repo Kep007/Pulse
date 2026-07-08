@@ -191,6 +191,11 @@ export function App() {
   // anchors from the window's current position — otherwise whichever effect
   // calls setPosition last wins the race, and hover-driven resizes end up
   // preserving the OS's default placement instead of the saved corner.
+  //
+  // The window itself starts hidden (tauri.conf.json `visible: false` on
+  // "main") specifically so this effect can position it *before* it's ever
+  // painted — showing it only in the `finally` below is what prevents the
+  // old flash at the OS's default spawn position.
   useEffect(() => {
     let cancelled = false;
     dockToSavedCorner(MIN_COLLAPSED_WIDTH, COLLAPSED_HEIGHT)
@@ -199,6 +204,9 @@ export function App() {
       .finally(() => {
         if (!cancelled) {
           setIsDocked(true);
+          getCurrentWindow()
+            .show()
+            .catch((error) => console.error("Unable to show widget window", error));
         }
       });
     return () => {
