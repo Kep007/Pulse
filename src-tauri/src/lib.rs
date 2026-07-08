@@ -93,6 +93,10 @@ fn show_widget(app: &AppHandle) {
 
 fn show_home(app: &AppHandle) {
     if let Some(window) = app.get_webview_window("home") {
+        // See open_home_window's identical unminimize()+center() — this is
+        // the tray menu's "Dashboard" entry, the other path to the same window.
+        let _ = window.unminimize();
+        let _ = window.center();
         let _ = window.show();
         let _ = window.set_focus();
     }
