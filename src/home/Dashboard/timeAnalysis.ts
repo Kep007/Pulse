@@ -18,6 +18,21 @@ function entriesOf(
   return metric === "project" ? bucket.byProject : bucket.byActivity;
 }
 
+// `filterId === null` means "Tutti" — every entity in the bucket summed into
+// one synthetic entry — instead of one specific project/activity's own row.
+function entryFor(
+  bucket: { byProject: BreakdownEntry[]; byActivity: BreakdownEntry[] },
+  metric: BreakdownMetric,
+  filterId: number | null,
+): BreakdownEntry | undefined {
+  const entries = entriesOf(bucket, metric);
+  if (filterId === null) {
+    const seconds = entries.reduce((sum, entry) => sum + entry.seconds, 0);
+    return seconds > 0 ? { id: -1, name: "Tutti", color: null, seconds } : undefined;
+  }
+  return entries.find((item) => item.id === filterId);
+}
+
 // All-time total per project/activity, summed across every fetched day —
 // the source for both the percentage breakdown and the ranking card. Sorted
 // descending so callers don't each need their own sort.
@@ -58,14 +73,14 @@ export function computeEntityStats(
   dailyBuckets: DayBucket[],
   monthlyBuckets: MonthBucket[],
   metric: BreakdownMetric,
-  filterId: number,
+  filterId: number | null,
 ): EntityStats {
   let totalSeconds = 0;
   let activeDays = 0;
   const weekdayTotals = new Array(7).fill(0) as number[];
 
   for (const bucket of dailyBuckets) {
-    const entry = entriesOf(bucket, metric).find((item) => item.id === filterId);
+    const entry = entryFor(bucket, metric, filterId);
     if (entry && entry.seconds > 0) {
       totalSeconds += entry.seconds;
       activeDays += 1;
@@ -75,7 +90,7 @@ export function computeEntityStats(
 
   let bestMonth: EntityStats["bestMonth"] = null;
   for (const bucket of monthlyBuckets) {
-    const entry = entriesOf(bucket, metric).find((item) => item.id === filterId);
+    const entry = entryFor(bucket, metric, filterId);
     if (entry && entry.seconds > 0 && (bestMonth === null || entry.seconds > bestMonth.seconds)) {
       bestMonth = { month: bucket.month, seconds: entry.seconds };
     }
@@ -104,11 +119,11 @@ export function computeEntityStats(
 export function monthlyHistoryEntries(
   monthlyBuckets: MonthBucket[],
   metric: BreakdownMetric,
-  filterId: number,
+  filterId: number | null,
 ): BreakdownEntry[] {
   const rows: BreakdownEntry[] = [];
   for (const bucket of monthlyBuckets) {
-    const entry = entriesOf(bucket, metric).find((item) => item.id === filterId);
+    const entry = entryFor(bucket, metric, filterId);
     if (entry && entry.seconds > 0) {
       rows.push({ id: rows.length, name: capitalize(formatMonthIt(bucket.month)), color: null, seconds: entry.seconds });
     }
@@ -121,7 +136,7 @@ export function monthlyHistoryEntries(
 export function monthDailyEntries(
   dailyBuckets: DayBucket[],
   metric: BreakdownMetric,
-  filterId: number,
+  filterId: number | null,
   month: string,
 ): BreakdownEntry[] {
   const rows: BreakdownEntry[] = [];
@@ -129,7 +144,7 @@ export function monthDailyEntries(
     if (!bucket.date.startsWith(month)) {
       continue;
     }
-    const entry = entriesOf(bucket, metric).find((item) => item.id === filterId);
+    const entry = entryFor(bucket, metric, filterId);
     if (entry && entry.seconds > 0) {
       rows.push({ id: rows.length, name: formatDayMonthIt(bucket.date), color: null, seconds: entry.seconds });
     }
@@ -142,7 +157,7 @@ export function monthDailyEntries(
 export function weekdayHistoryEntries(
   dailyBuckets: DayBucket[],
   metric: BreakdownMetric,
-  filterId: number,
+  filterId: number | null,
   weekday: number,
 ): BreakdownEntry[] {
   const rows: BreakdownEntry[] = [];
@@ -150,7 +165,7 @@ export function weekdayHistoryEntries(
     if (weekdayIndex(bucket.date) !== weekday) {
       continue;
     }
-    const entry = entriesOf(bucket, metric).find((item) => item.id === filterId);
+    const entry = entryFor(bucket, metric, filterId);
     if (entry && entry.seconds > 0) {
       rows.push({ id: rows.length, name: formatDayMonthYearIt(bucket.date), color: null, seconds: entry.seconds });
     }

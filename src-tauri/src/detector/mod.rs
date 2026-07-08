@@ -1,4 +1,5 @@
 mod matcher;
+pub mod mouse_hook;
 mod win;
 
 use crate::db;
@@ -14,11 +15,16 @@ pub use win::is_ctrl_pressed;
 
 const POLL_INTERVAL: Duration = Duration::from_secs(2);
 /// Consecutive polls a newly-detected project/activity must hold before it
-/// is proposed to the user — filters out a quick alt-tab glance. At
-/// POLL_INTERVAL=2s this commits ~10s after the switch first appears, per
-/// the user's ask: a project switch should only take effect once it's been
-/// the foreground window for a real stretch, not a glance.
-const DEBOUNCE_HITS: u8 = 6;
+/// is proposed to the user — filters out a same-tick flicker (e.g. a
+/// notification stealing focus for a fraction of a second) without
+/// meaningfully delaying real switches. At POLL_INTERVAL=2s this commits
+/// 2-4s after the switch first appears. Deliberately short: a user who
+/// hops between projects for 5-10s at a time needs those short stretches
+/// counted at all, which a longer debounce (previously 12s) simply
+/// dropped — the daily timeline view is what now lets them review/spot a
+/// genuine glance after the fact, instead of the debounce trying to
+/// prevent it from ever being recorded.
+const DEBOUNCE_HITS: u8 = 2;
 /// No keyboard/mouse input for this long stops crediting time to whatever
 /// project/activity is current — see the idle handling at the top of
 /// `tick`. Deliberately keyboard-inclusive (not mouse-only): typing counts
@@ -35,7 +41,7 @@ struct Candidate {
     suggestion: Suggestion,
     hits: u8,
     /// When this suggestion was first noticed — used to backdate the
-    /// eventual commit so the debounce wait itself (~10s) isn't lost time:
+    /// eventual commit so the debounce wait itself (~2-4s) isn't lost time:
     /// the new segment starts when the window actually changed, not when
     /// the app finally became confident enough to act on it.
     first_seen: DateTime<Utc>,
@@ -267,7 +273,7 @@ fn tick(app: &AppHandle) {
 
     // The window actually changed back when the candidate first appeared,
     // not just now that the debounce finally cleared — backdating the
-    // commit to that moment is what keeps the ~10s debounce wait from
+    // commit to that moment is what keeps the ~2-4s debounce wait from
     // being lost time on every single switch.
     let detected_since = detector
         .candidate
@@ -436,29 +442,31 @@ pub fn set_active_activity(app: &AppHandle, activity_type_id: Option<i64>) -> Tr
     result
 }
 
+/// Stops the clock without discarding which project/activity was active —
+/// only the open segment is closed (mirroring the idle handling in `tick`),
+/// so the widget keeps showing that project, just paused, instead of
+/// dropping to "no project" and losing the pin.
 pub fn pause(app: &AppHandle) -> TrackingState {
     let state = app.state::<AppState>();
     let mut detector = state.detector.lock().unwrap();
     detector.is_paused = true;
     detector.pending = None;
+    detector.candidate = None;
     let conn = state.db.lock().unwrap();
-    let result = commit(
-        app,
-        &mut detector,
-        &conn,
-        None,
-        None,
-        Source::Manual,
-        None,
-        None,
-        Utc::now(),
-    );
+    if let Err(err) = db::close_open_segment(&conn, Utc::now()) {
+        log::error!("failed to close segment on pause: {err}");
+    }
+    let result = build_tracking_state(&conn, &detector);
+    drop(conn);
+    let _ = app.emit("state-changed", &result);
     emit_toast(app, "Tracciamento in pausa");
     result
 }
 
-/// Resuming always re-enters automatic detection, re-evaluating the
-/// foreground window immediately instead of waiting for the next poll.
+/// Resuming reopens tracking on whatever project/activity/source was frozen
+/// at pause time, starting now — it does not re-run auto-detection, so a
+/// manually-pinned project comes back exactly as it was left instead of
+/// being replaced by whatever the foreground window happens to be now.
 pub fn resume(app: &AppHandle) -> TrackingState {
     let state = app.state::<AppState>();
     let mut detector = state.detector.lock().unwrap();
@@ -466,17 +474,9 @@ pub fn resume(app: &AppHandle) -> TrackingState {
     detector.pending = None;
     detector.suppressed = None;
 
-    let info = win::read_foreground_info();
-    let (project_id, activity_type_id) = match &info {
-        Some(info) => {
-            let matcher = state.matcher.lock().unwrap();
-            (
-                matcher.match_project(&info.window_title, &info.process_name),
-                matcher.match_activity(&info.window_title, &info.process_name),
-            )
-        }
-        None => (None, None),
-    };
+    let project_id = detector.stable_project;
+    let activity_type_id = detector.stable_activity;
+    let source = detector.source;
 
     let conn = state.db.lock().unwrap();
     let result = commit(
@@ -485,9 +485,9 @@ pub fn resume(app: &AppHandle) -> TrackingState {
         &conn,
         project_id,
         activity_type_id,
-        Source::Auto,
-        info.as_ref().map(|i| i.window_title.as_str()),
-        info.as_ref().map(|i| i.process_name.as_str()),
+        source,
+        None,
+        None,
         Utc::now(),
     );
     emit_toast(app, "Tracciamento ripreso");

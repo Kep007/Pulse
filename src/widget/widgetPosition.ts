@@ -29,18 +29,21 @@ async function positionAtCorner(corner: string, width: number, height: number) {
   }
 
   const scale = await getCurrentWindow().scaleFactor();
-  const monitorSize = monitor.size.toLogical(scale);
-  const monitorPosition = monitor.position.toLogical(scale);
+  // `workArea` excludes the taskbar (unlike the monitor's full bounds) — a
+  // "bottom" corner anchored to the raw monitor height lands the widget
+  // right where the taskbar sits, so it ends up covered by it.
+  const workAreaSize = monitor.workArea.size.toLogical(scale);
+  const workAreaPosition = monitor.workArea.position.toLogical(scale);
 
   const isRight = corner.includes("right");
   const isBottom = corner.includes("bottom");
 
   const x = isRight
-    ? monitorPosition.x + monitorSize.width - width - MARGIN
-    : monitorPosition.x + MARGIN;
+    ? workAreaPosition.x + workAreaSize.width - width - MARGIN
+    : workAreaPosition.x + MARGIN;
   const y = isBottom
-    ? monitorPosition.y + monitorSize.height - height - MARGIN
-    : monitorPosition.y + MARGIN;
+    ? workAreaPosition.y + workAreaSize.height - height - MARGIN
+    : workAreaPosition.y + MARGIN;
 
   await getCurrentWindow().setPosition(new LogicalPosition(x, y));
 }
@@ -94,13 +97,13 @@ export async function clampToScreen() {
     return;
   }
 
-  const monitorSize = monitor.size.toLogical(scale);
-  const monitorPosition = monitor.position.toLogical(scale);
+  const workAreaSize = monitor.workArea.size.toLogical(scale);
+  const workAreaPosition = monitor.workArea.position.toLogical(scale);
 
-  const minX = monitorPosition.x + MARGIN;
-  const minY = monitorPosition.y + MARGIN;
-  const maxX = Math.max(minX, monitorPosition.x + monitorSize.width - size.width - MARGIN);
-  const maxY = Math.max(minY, monitorPosition.y + monitorSize.height - size.height - MARGIN);
+  const minX = workAreaPosition.x + MARGIN;
+  const minY = workAreaPosition.y + MARGIN;
+  const maxX = Math.max(minX, workAreaPosition.x + workAreaSize.width - size.width - MARGIN);
+  const maxY = Math.max(minY, workAreaPosition.y + workAreaSize.height - size.height - MARGIN);
 
   const clampedX = Math.min(Math.max(position.x, minX), maxX);
   const clampedY = Math.min(Math.max(position.y, minY), maxY);

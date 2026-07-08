@@ -16,7 +16,7 @@ export function BreakdownTooltip({ title, totalSeconds, entries }: BreakdownTool
         <ul>
           {entries.slice(0, 6).map((entry) => (
             <li key={entry.id}>
-              <span>{entry.name}</span>
+              <span title={entry.name}>{entry.name}</span>
               <span>{formatHoursMinutes(entry.seconds)}</span>
             </li>
           ))}

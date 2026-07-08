@@ -498,6 +498,17 @@
   gap: 12px;
 }
 
+.cell-tooltip li span:first-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+.cell-tooltip li span:last-child {
+  flex-shrink: 0;
+}
+
 .cell-tooltip-empty {
   margin: 6px 0 0;
   color: #c3c2b7;
@@ -688,6 +699,90 @@
   color: #667085;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
+}
+
+/* Daily timeline (a day's project sessions positioned by real time-of-day). */
+
+.timeline-day-nav {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.timeline-day-nav-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: #667085;
+  cursor: pointer;
+}
+
+.timeline-day-nav-button:hover:not(:disabled) {
+  background: #f2f1ea;
+  color: #172033;
+}
+
+.timeline-day-nav-button:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.timeline-chevron-left {
+  transform: rotate(90deg);
+}
+
+.timeline-chevron-right {
+  transform: rotate(-90deg);
+}
+
+.timeline-day-label {
+  min-width: 130px;
+  text-align: center;
+  font-size: 13px;
+  font-weight: 600;
+  color: #172033;
+}
+
+.daily-timeline {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.daily-timeline-track {
+  position: relative;
+  height: 36px;
+  border-radius: 6px;
+  background: #e1e0d9;
+  overflow: hidden;
+}
+
+.daily-timeline-block {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  min-width: 3px;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+  box-shadow: inset 1px 0 0 #ffffff, inset -1px 0 0 #ffffff;
+}
+
+.daily-timeline-axis {
+  display: flex;
+  justify-content: space-between;
+  font-size: 11px;
+  color: #667085;
+  font-variant-numeric: tabular-nums;
+}
+
+.daily-timeline-legend {
+  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
 }
 
 /* Ranking (magnitude comparison — color is the sequential heatmap ramp, not

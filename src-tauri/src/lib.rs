@@ -196,8 +196,18 @@ pub fn run() {
                         commands::settings::DEFAULT_CONFIRM_SHORTCUT.to_string()
                     })
             };
-            if let Err(err) = app.global_shortcut().register(confirm_shortcut.as_str()) {
-                log::error!("failed to register confirm shortcut: {err}");
+            detector::mouse_hook::install(app.handle().clone());
+            if let Some(button) = detector::mouse_hook::MouseButton::parse(&confirm_shortcut) {
+                detector::mouse_hook::set_trigger(Some(button));
+            } else {
+                match commands::settings::parse_accelerator(&confirm_shortcut) {
+                    Ok(hotkey) => {
+                        if let Err(err) = app.global_shortcut().register(hotkey) {
+                            log::error!("failed to register confirm shortcut: {err}");
+                        }
+                    }
+                    Err(err) => log::error!("failed to parse confirm shortcut: {err}"),
+                }
             }
 
             let activity_detection_enabled = {

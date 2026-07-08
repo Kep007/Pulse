@@ -107,12 +107,16 @@ export function ToastWindow() {
       await win.setSize(new LogicalSize(size.width, size.height));
 
       if (monitor) {
-        const monitorSize = monitor.size.toLogical(scale);
-        const monitorPosition = monitor.position.toLogical(scale);
+        // `workArea` excludes the taskbar (unlike the monitor's full
+        // bounds) — anchoring to the raw monitor height put most of the
+        // toast's body underneath/behind the taskbar, which is why it
+        // looked like notifications never appeared at all.
+        const workAreaSize = monitor.workArea.size.toLogical(scale);
+        const workAreaPosition = monitor.workArea.position.toLogical(scale);
         await win.setPosition(
           new LogicalPosition(
-            monitorPosition.x + MARGIN,
-            monitorPosition.y + monitorSize.height - size.height - MARGIN,
+            workAreaPosition.x + workAreaSize.width - size.width - MARGIN,
+            workAreaPosition.y + workAreaSize.height - size.height - MARGIN,
           ),
         );
       }

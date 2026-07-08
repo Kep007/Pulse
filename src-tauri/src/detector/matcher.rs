@@ -3,10 +3,21 @@ use unicode_normalization::UnicodeNormalization;
 
 /// Ports the previous TS `normalizeProjectName`: NFD-decompose, drop
 /// combining marks (diacritics), lowercase, and collapse whitespace.
+///
+/// Non-alphanumeric separators (underscore, hyphen, dot, ...) are also
+/// folded to spaces here, not just plain whitespace — file names (a Word
+/// document's window title *is* its file name) very commonly join the
+/// project name to the rest with an underscore, e.g. `SIDIAL_Preventivo.docx`.
+/// `\b` in the word-boundary regex below doesn't break on `_` (it's a regex
+/// word character like a letter or digit), so `SIDIAL_Preventivo` would
+/// otherwise be seen as one unbroken word and never match `\bsidial\b`.
 pub fn normalize_text(value: &str) -> String {
     let decomposed: String = value.nfd().filter(|c| !is_combining_mark(*c)).collect();
     decomposed
         .to_lowercase()
+        .chars()
+        .map(|c| if c.is_alphanumeric() { c } else { ' ' })
+        .collect::<String>()
         .split_whitespace()
         .collect::<Vec<_>>()
         .join(" ")

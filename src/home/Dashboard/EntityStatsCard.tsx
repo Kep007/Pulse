@@ -33,7 +33,7 @@ export function EntityStatsCard({
   filterId,
   emptyLabel,
 }: EntityStatsCardProps) {
-  if (!stats || stats.totalSeconds <= 0 || filterId === null) {
+  if (!stats || stats.totalSeconds <= 0) {
     return <p className="dashboard-empty">{emptyLabel}</p>;
   }
 

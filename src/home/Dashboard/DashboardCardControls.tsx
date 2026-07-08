@@ -2,12 +2,9 @@ import type { ActivityTypeDto, BreakdownMetric, ProjectDto } from "../../lib/typ
 
 // "all" — the usual switcher + "Tutti i progetti/Tutte le attività" + one
 //   specific entity.
-// "required" — no "all" option; the card always shows exactly one entity
-//   (the caller is responsible for defaulting filterId to a real id once
-//   the catalog loads — see DashboardView's auto-select effect).
 // "none" — switcher only, no dropdown (a ranking or breakdown across every
 //   entity has nothing meaningful to filter down to one item).
-type FilterMode = "all" | "required" | "none";
+type FilterMode = "all" | "none";
 
 type DashboardCardControlsProps = {
   metric: BreakdownMetric;

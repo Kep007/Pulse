@@ -3,6 +3,7 @@ import { getActivityDetectionEnabled, getDailySummary, getMonthlySummary, listAc
 import type { ActivityTypeDto, BreakdownMetric, DayBucket, MonthBucket } from "../../lib/types";
 import { useProjects } from "../../lib/useProjects";
 import { assignCategoricalColors } from "./categoricalPalette";
+import { DailyTimeline } from "./DailyTimeline";
 import { DashboardCardControls } from "./DashboardCardControls";
 import { DashboardCardTitle } from "./DashboardCardTitle";
 import { EntityStatsCard } from "./EntityStatsCard";
@@ -65,19 +66,6 @@ export function DashboardView() {
     getActivityDetectionEnabled().then(setActivityEnabled);
   }, []);
 
-  // The dynamic per-entity card has no "all" option — once the catalog for
-  // the current metric loads, default it to the first entity instead of
-  // showing an empty card until the user picks one themselves.
-  useEffect(() => {
-    if (statsFilterId !== null) {
-      return;
-    }
-    const options = statsMetric === "project" ? projects : activityTypes;
-    if (options.length > 0) {
-      setStatsFilterId(options[0].id);
-    }
-  }, [statsMetric, statsFilterId, projects, activityTypes]);
-
   // Color follows the entity (its catalog id), never its current rank in a
   // sorted-by-value list — otherwise the same project's slice would repaint
   // every time another project overtakes it.
@@ -99,10 +87,7 @@ export function DashboardView() {
     [allTimeDailyBuckets, rankingMetric],
   );
   const entityStats = useMemo(
-    () =>
-      statsFilterId === null
-        ? null
-        : computeEntityStats(allTimeDailyBuckets, allTimeMonthlyBuckets, statsMetric, statsFilterId),
+    () => computeEntityStats(allTimeDailyBuckets, allTimeMonthlyBuckets, statsMetric, statsFilterId),
     [allTimeDailyBuckets, allTimeMonthlyBuckets, statsMetric, statsFilterId],
   );
 
@@ -121,7 +106,7 @@ export function DashboardView() {
             onFilterChange={setStatsFilterId}
             projects={projects}
             activityTypes={activityTypes}
-            filterMode="required"
+            filterMode="all"
             activityEnabled={activityEnabled}
           />
         </div>
@@ -137,6 +122,16 @@ export function DashboardView() {
               : "Nessun dato per questa attività."
           }
         />
+      </section>
+
+      <section className="dashboard-card">
+        <div className="dashboard-card-header">
+          <DashboardCardTitle
+            title="Timeline giornaliera"
+            info="La sequenza dei progetti su cui hai lavorato nell'arco della giornata, nell'ordine e all'orario reale in cui sono avvenuti gli switch. Passa il mouse su un blocco per vedere l'orario, la durata di quella sessione e il totale accumulato quel giorno su quel progetto (anche se ci sei tornato più volte)."
+          />
+        </div>
+        <DailyTimeline projects={projects} />
       </section>
 
       <section className="dashboard-card">
