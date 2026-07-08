@@ -777,20 +777,23 @@
   white-space: nowrap;
 }
 
-/* Daily timeline (a day's project sessions positioned by real time-of-day). */
+/* Daily timeline (a day's project sessions positioned by real time-of-day).
+   The day switcher sits in the card header (top-right, next to the title),
+   same slot other cards use for DashboardCardControls. */
 
 .timeline-day-nav {
+  flex-shrink: 0;
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 2px;
 }
 
 .timeline-day-nav-button {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 24px;
-  height: 24px;
+  width: 22px;
+  height: 22px;
   border: 0;
   border-radius: 6px;
   background: transparent;
@@ -817,11 +820,13 @@
 }
 
 .timeline-day-label {
-  min-width: 130px;
+  min-width: 0;
+  padding: 0 2px;
   text-align: center;
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 600;
   color: #172033;
+  white-space: nowrap;
 }
 
 .daily-timeline {
@@ -857,8 +862,27 @@
   font-variant-numeric: tabular-nums;
 }
 
-.daily-timeline-legend {
-  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+/* Column count (capped at 5) is set inline per-render from the actual
+   entry count, so a row of 4 items divides evenly into 4 equal columns
+   instead of auto-fill's fixed-width columns leaving a ragged gap before
+   whichever one wraps first. */
+
+/* Its own flex row (not display: contents) — contents removes a button
+   from the accessibility tree's focus order in Chromium, which would make
+   the tooltip permanently unreachable via keyboard. */
+.daily-timeline-legend-trigger {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-width: 0;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
 }
 
 /* Ranking (magnitude comparison — color is the sequential heatmap ramp, not

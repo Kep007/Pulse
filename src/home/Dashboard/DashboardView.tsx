@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
+import { IconChevron } from "../../components/icons";
 import { getActivityDetectionEnabled, getDailySummary, getMonthlySummary, listActivityTypes } from "../../lib/tauri";
 import type { ActivityTypeDto, BreakdownMetric, DayBucket, MonthBucket } from "../../lib/types";
 import { useProjects } from "../../lib/useProjects";
 import { assignCategoricalColors } from "./categoricalPalette";
-import { DailyTimeline } from "./DailyTimeline";
+import { DailyTimeline, formatDayLabel, isToday } from "./DailyTimeline";
 import { DashboardCardControls } from "./DashboardCardControls";
 import { DashboardCardTitle } from "./DashboardCardTitle";
 import { EntityStatsCard } from "./EntityStatsCard";
@@ -43,6 +44,15 @@ export function DashboardView() {
   const [rankingMetric, setRankingMetric] = useState<BreakdownMetric>("project");
   const [statsMetric, setStatsMetric] = useState<BreakdownMetric>("project");
   const [statsFilterId, setStatsFilterId] = useState<number | null>(null);
+  const [timelineDate, setTimelineDate] = useState(() => new Date());
+
+  function shiftTimelineDay(deltaDays: number) {
+    setTimelineDate((current) => {
+      const next = new Date(current);
+      next.setDate(next.getDate() + deltaDays);
+      return next;
+    });
+  }
 
   useEffect(() => {
     const to = new Date();
@@ -128,10 +138,30 @@ export function DashboardView() {
         <div className="dashboard-card-header">
           <DashboardCardTitle
             title="Timeline giornaliera"
-            info="La sequenza dei progetti su cui hai lavorato nell'arco della giornata, nell'ordine e all'orario reale in cui sono avvenuti gli switch. Passa il mouse su un blocco per vedere l'orario, la durata di quella sessione e il totale accumulato quel giorno su quel progetto (anche se ci sei tornato più volte)."
+            info="La sequenza dei progetti su cui hai lavorato nell'arco della giornata, nell'ordine e all'orario reale in cui sono avvenuti gli switch. Passa il mouse su un blocco per vedere l'orario, la durata di quella sessione e il totale accumulato quel giorno su quel progetto (anche se ci sei tornato più volte). Passa il mouse su una voce della legenda per vedere tutte le sessioni di quel progetto nella giornata."
           />
+          <div className="timeline-day-nav">
+            <button
+              type="button"
+              className="timeline-day-nav-button"
+              onClick={() => shiftTimelineDay(-1)}
+              aria-label="Giorno precedente"
+            >
+              <IconChevron size={14} className="timeline-chevron-left" />
+            </button>
+            <span className="timeline-day-label">{formatDayLabel(timelineDate)}</span>
+            <button
+              type="button"
+              className="timeline-day-nav-button"
+              onClick={() => shiftTimelineDay(1)}
+              disabled={isToday(timelineDate)}
+              aria-label="Giorno successivo"
+            >
+              <IconChevron size={14} className="timeline-chevron-right" />
+            </button>
+          </div>
         </div>
-        <DailyTimeline projects={projects} />
+        <DailyTimeline date={timelineDate} projects={projects} />
       </section>
 
       <section className="dashboard-card">
