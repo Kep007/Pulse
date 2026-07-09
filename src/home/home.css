@@ -866,7 +866,10 @@
   position: absolute;
   top: 0;
   bottom: 0;
-  min-width: 3px;
+  /* Sub-minute segments would otherwise round to a slice a fraction of a
+     pixel wide — impossible to spot or hover. This floor keeps every
+     segment clickable/hoverable regardless of how short it really was. */
+  min-width: 6px;
   border: 0;
   padding: 0;
   cursor: pointer;

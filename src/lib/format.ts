@@ -21,6 +21,18 @@ export function formatHoursMinutes(totalSeconds: number) {
   return hours > 0 ? `${hours}h ${minutes}m` : `${minutes}m`;
 }
 
+// Same as formatHoursMinutes but drops down to seconds under a minute
+// instead of collapsing to "0m" — used where sub-minute sessions are
+// common enough that "0m" would be indistinguishable from "didn't happen"
+// (e.g. individual blocks on the daily timeline).
+export function formatDuration(totalSeconds: number) {
+  const clamped = Math.max(0, Math.floor(totalSeconds));
+  if (clamped < 60) {
+    return `${clamped}s`;
+  }
+  return formatHoursMinutes(clamped);
+}
+
 export function capitalize(text: string) {
   return text.charAt(0).toUpperCase() + text.slice(1);
 }
