@@ -1,13 +1,15 @@
+pub mod browser_signal;
 mod matcher;
 pub mod mouse_hook;
 mod win;
 
 use crate::db;
 use crate::models::{PendingSuggestion, Source, TrackingState};
+use browser_signal::{BrowserSignal, MatchIntent};
 use chrono::{DateTime, Utc};
 use rusqlite::Connection;
 use std::sync::Mutex;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter, Manager};
 
 pub use matcher::Matcher;
@@ -98,6 +100,11 @@ pub struct AppState {
     /// parked, off by default, and flippable from Settings without touching
     /// this architecture again once it's wanted back.
     pub activity_detection_enabled: Mutex<bool>,
+    /// The active browser tab reported by the companion extension, if it's
+    /// installed and running — see `browser_signal`. Stays `None` for the
+    /// app's entire lifetime otherwise, which is what makes every browser
+    /// tab fall back to plain window-title matching with no behavior change.
+    pub browser_signal: Mutex<Option<BrowserSignal>>,
 }
 
 impl AppState {
@@ -110,6 +117,7 @@ impl AppState {
             matcher: Mutex::new(Matcher::build(&projects, &rules)),
             detector: Mutex::new(DetectorState::initial(Utc::now())),
             activity_detection_enabled: Mutex::new(false),
+            browser_signal: Mutex::new(None),
         })
     }
 }
@@ -126,7 +134,25 @@ pub fn spawn_polling(app: AppHandle) {
     });
 }
 
+/// Re-asserts the widget/toast windows' topmost z-order every tick. Windows
+/// can silently knock an "always on top" window out of the topmost band
+/// without ever clearing its flag — e.g. opening a File Explorer window has
+/// been observed to leave the widget logically topmost but visually behind
+/// it — so `alwaysOnTop: true` in tauri.conf.json alone isn't enough; it only
+/// takes effect once, at window creation. Cheap enough (a couple of no-op
+/// SetWindowPos calls) to just do unconditionally on the existing 2s poll
+/// rather than adding a second timer.
+fn reassert_always_on_top(app: &AppHandle) {
+    for label in ["main", "toast"] {
+        if let Some(window) = app.get_webview_window(label) {
+            let _ = window.set_always_on_top(true);
+        }
+    }
+}
+
 fn tick(app: &AppHandle) {
+    reassert_always_on_top(app);
+
     let state = app.state::<AppState>();
     let mut detector = state.detector.lock().unwrap();
 
@@ -194,13 +220,30 @@ fn tick(app: &AppHandle) {
         return;
     }
 
-    let (detected_project, detected_activity) = {
+    // The companion browser extension (if installed) can override what gets
+    // matched — e.g. a Pinterest pin's page title has nothing to do with
+    // project detection, or WhatsApp Web's contact name (never present in
+    // the OS window title, which stays "WhatsApp" regardless of which chat
+    // is open) is a better match target than the title itself. Absent the
+    // extension this is always `UseWindowTitle`, so behavior is unchanged.
+    let match_intent = {
+        let signal = state.browser_signal.lock().unwrap();
+        browser_signal::resolve_match_text(&info, signal.as_ref(), Instant::now())
+    };
+
+    let (detected_project, detected_activity) = if match_intent == MatchIntent::Skip {
+        (None, None)
+    } else {
+        let text: &str = match &match_intent {
+            MatchIntent::UseText(text) => text,
+            _ => &info.window_title,
+        };
         let matcher = state.matcher.lock().unwrap();
         let activity_enabled = *state.activity_detection_enabled.lock().unwrap();
         (
-            matcher.match_project(&info.window_title, &info.process_name),
+            matcher.match_project(text, &info.process_name),
             activity_enabled
-                .then(|| matcher.match_activity(&info.window_title, &info.process_name))
+                .then(|| matcher.match_activity(text, &info.process_name))
                 .flatten(),
         )
     };

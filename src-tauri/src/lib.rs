@@ -185,6 +185,7 @@ pub fn run() {
             let state = AppState::new(conn)?;
             app.manage(state);
             detector::spawn_polling(app.handle().clone());
+            detector::browser_signal::spawn_server(app.handle().clone());
 
             let update_handle = app.handle().clone();
             tauri::async_runtime::spawn(async move {

@@ -1,6 +1,6 @@
 [package]
 name = "pulse"
-version = "2.0.0"
+version = "2.0.1"
 description = "Automatic desktop time tracker for client work"
 authors = ["Pulse"]
 edition = "2021"
@@ -29,6 +29,7 @@ tokio = { version = "1", features = ["time"] }
 regex = "1"
 unicode-normalization = "0.1"
 chrono = { version = "0.4", features = ["serde"] }
+tiny_http = "0.12"
 
 [target.'cfg(windows)'.dependencies]
 windows = { version = "0.61", features = [

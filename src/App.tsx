@@ -222,13 +222,22 @@ export function App() {
 
   // The widget is always-on-top, so without this it would sit in front of
   // whatever the user is trying to click underneath it (a window's own
-  // close button, a menu, ...) every time the cursor happens to pass over
-  // it. Fully hiding it AND letting clicks fall through to the window below
-  // is what makes that non-disruptive — CSS opacity alone would still eat
-  // the click.
+  // close button, a Figma panel, a WhatsApp menu, ...) every time the cursor
+  // happens to pass over it. Click-through is the default state, not just
+  // something "fade" turns on: hover detection polls the OS cursor position
+  // on a 150ms timer (see useHoverIntent), so there's an inherent window
+  // between the cursor actually landing on the widget and this effect
+  // reacting to it. Keying this off `isFaded` used to mean the *idle* state
+  // (cursor not yet detected as hovering) was non-click-through by default —
+  // exactly the state a fast click lands in first — so every click near the
+  // widget raced that poll and regularly lost, swallowed by the invisible
+  // window instead of reaching Figma/WhatsApp underneath. Nothing in the
+  // collapsed or faded widget has an onClick handler anyway (only the
+  // ctrl+hover "expanded" controls do), so there's no interactivity to lose
+  // by defaulting to click-through and only turning it off once expanded.
   useEffect(() => {
-    void getCurrentWindow().setIgnoreCursorEvents(isFaded);
-  }, [isFaded]);
+    void getCurrentWindow().setIgnoreCursorEvents(!isExpanded);
+  }, [isExpanded]);
 
   // Initial corner-docking must land before useHoverExpand starts computing
   // anchors from the window's current position — otherwise whichever effect
