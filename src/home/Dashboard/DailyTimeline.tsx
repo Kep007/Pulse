@@ -1,11 +1,55 @@
 import { useEffect, useMemo, useState } from "react";
-import { formatHoursMinutes } from "../../lib/format";
+import { formatDuration } from "../../lib/format";
 import { getDayDetail } from "../../lib/tauri";
 import type { ProjectDto, SegmentDto } from "../../lib/types";
 import { assignCategoricalColors, OTHER_COLOR } from "./categoricalPalette";
 import { TooltipTrigger } from "./TooltipTrigger";
 
 const DAY_MINUTES = 24 * 60;
+
+// Below this, a segment reads as a stray interruption rather than a real
+// switch of activity — e.g. a stray window focus event lasting a few
+// seconds in the middle of an hour of real work. Left in, it turns into an
+// unreadable hairline on the bar and splits what was really one continuous
+// session into two. If it sits between two other segments (i.e. it's
+// actually interrupting something, not just the last/first thing of the
+// day), fold it away: same project on both sides collapses into one
+// unbroken block, different projects just absorb its span into whichever
+// activity came before it. Isolated short segments (nothing before or
+// after) are left alone — they aren't "cutting" anything — and are still
+// made readable via the min-width/seconds handling below.
+const NOISE_THRESHOLD_SECONDS = 60;
+
+function collapseShortInterruptions(segments: SegmentDto[]): SegmentDto[] {
+  const result: SegmentDto[] = [];
+  for (let i = 0; i < segments.length; i++) {
+    const segment = segments[i];
+    const prev = result[result.length - 1];
+    const next = segments[i + 1];
+
+    if (segment.durationSeconds < NOISE_THRESHOLD_SECONDS && prev && next) {
+      const sameProject = (prev.project?.id ?? null) === (next.project?.id ?? null);
+      if (sameProject) {
+        result[result.length - 1] = {
+          ...prev,
+          endedAt: next.endedAt,
+          durationSeconds: prev.durationSeconds + segment.durationSeconds + next.durationSeconds,
+        };
+        i++; // next has been folded in too; skip it
+      } else {
+        result[result.length - 1] = {
+          ...prev,
+          endedAt: segment.endedAt,
+          durationSeconds: prev.durationSeconds + segment.durationSeconds,
+        };
+      }
+      continue;
+    }
+
+    result.push(segment);
+  }
+  return result;
+}
 
 export function isoDate(date: Date) {
   return date.toISOString().slice(0, 10);
@@ -83,12 +127,17 @@ export function DailyTimeline({ date, projects }: DailyTimelineProps) {
     [projects],
   );
 
+  const mergedSegments = useMemo(
+    () => collapseShortInterruptions(segments.filter((segment) => segment.durationSeconds > 0)),
+    [segments],
+  );
+
   // Same project can appear in several blocks across the day (switch away,
   // switch back) — both tooltips' "totale in giornata" sum every one of
   // them, not just a single block's own duration.
   const dailyTotalsByProject = useMemo(() => {
     const totals = new Map<number, number>();
-    for (const segment of segments) {
+    for (const segment of mergedSegments) {
       if (!segment.project) {
         continue;
       }
@@ -98,21 +147,19 @@ export function DailyTimeline({ date, projects }: DailyTimelineProps) {
       );
     }
     return totals;
-  }, [segments]);
+  }, [mergedSegments]);
 
   const blocks = useMemo<Block[]>(() => {
-    return segments
-      .filter((segment) => segment.durationSeconds > 0)
-      .map((segment, index) => {
-        const start = new Date(segment.startedAt);
-        const startMinutes = start.getHours() * 60 + start.getMinutes() + start.getSeconds() / 60;
-        const endMinutes = Math.min(startMinutes + segment.durationSeconds / 60, DAY_MINUTES);
-        const color = segment.project
-          ? projectColors.get(segment.project.id) ?? OTHER_COLOR
-          : OTHER_COLOR;
-        return { key: index, segment, startMinutes, endMinutes, color };
-      });
-  }, [segments, projectColors]);
+    return mergedSegments.map((segment, index) => {
+      const start = new Date(segment.startedAt);
+      const startMinutes = start.getHours() * 60 + start.getMinutes() + start.getSeconds() / 60;
+      const endMinutes = Math.min(startMinutes + segment.durationSeconds / 60, DAY_MINUTES);
+      const color = segment.project
+        ? projectColors.get(segment.project.id) ?? OTHER_COLOR
+        : OTHER_COLOR;
+      return { key: index, segment, startMinutes, endMinutes, color };
+    });
+  }, [mergedSegments, projectColors]);
 
   // A fixed 00:00-24:00 axis squeezed a few real hours of work into a sliver
   // in the middle of an otherwise empty bar. Scoping the axis to the actual
@@ -191,15 +238,15 @@ export function DailyTimeline({ date, projects }: DailyTimelineProps) {
                 width: `${((block.endMinutes - block.startMinutes) / span) * 100}%`,
                 background: block.color,
               }}
-              ariaLabel={`${projectName}: ${startLabel} – ${endLabel}, ${formatHoursMinutes(block.segment.durationSeconds)}`}
+              ariaLabel={`${projectName}: ${startLabel} – ${endLabel}, ${formatDuration(block.segment.durationSeconds)}`}
               renderTooltip={() => (
                 <div className="cell-tooltip" role="tooltip">
                   <strong>{projectName}</strong>
                   <span className="cell-tooltip-total">
-                    {startLabel} – {endLabel} · {formatHoursMinutes(block.segment.durationSeconds)}
+                    {startLabel} – {endLabel} · {formatDuration(block.segment.durationSeconds)}
                   </span>
                   <p className="cell-tooltip-empty">
-                    Totale in giornata: {formatHoursMinutes(dailyTotal)}
+                    Totale in giornata: {formatDuration(dailyTotal)}
                   </p>
                 </div>
               )}
@@ -231,12 +278,12 @@ export function DailyTimeline({ date, projects }: DailyTimelineProps) {
                           <span>
                             {sessionRange.startLabel} – {sessionRange.endLabel}
                           </span>
-                          <span>{formatHoursMinutes(sessionRange.durationSeconds)}</span>
+                          <span>{formatDuration(sessionRange.durationSeconds)}</span>
                         </li>
                       ))}
                     </ul>
                     <p className="cell-tooltip-empty">
-                      Totale in giornata: {formatHoursMinutes(entry.totalSeconds)}
+                      Totale in giornata: {formatDuration(entry.totalSeconds)}
                     </p>
                   </div>
                 )}
