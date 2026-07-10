@@ -19,11 +19,21 @@ const MIGRATIONS: &[(&str, &str)] = &[
     ),
 ];
 
+/// Single folder all of Pulse's per-user data (database, settings) lives in
+/// — the same `%LOCALAPPDATA%\<identifier>\` root `tauri-plugin-log` already
+/// uses for the `logs\` subfolder, chosen over the roaming `app_data_dir`
+/// (`%APPDATA%`) so a tracking database with WAL files isn't a candidate for
+/// profile roaming/sync. Kept separate from the NSIS install directory
+/// (`%LOCALAPPDATA%\Programs\Pulse\`) so an app update, which overwrites that
+/// directory, can never touch live user data.
+pub fn data_dir(app: &AppHandle) -> std::path::PathBuf {
+    app.path()
+        .app_local_data_dir()
+        .expect("resolve app local data dir")
+}
+
 pub fn open(app: &AppHandle) -> rusqlite::Result<Connection> {
-    let dir = app
-        .path()
-        .app_data_dir()
-        .expect("resolve app data dir");
+    let dir = data_dir(app);
     std::fs::create_dir_all(&dir).expect("create app data dir");
 
     let conn = Connection::open(dir.join("pulse.db"))?;

@@ -44,6 +44,43 @@ fn install_panic_hook() {
     }));
 }
 
+/// Moves the database and settings file from the pre-2.0.2 locations
+/// (`app_data_dir`, i.e. roaming `%APPDATA%\app.pulse.desktop\`) into the
+/// unified local data dir (`db::data_dir`, `%LOCALAPPDATA%\app.pulse.desktop\`)
+/// that already held `logs\`. Runs once at startup, before anything opens
+/// either file. Best-effort: a failed move (e.g. an old file somehow already
+/// gone) just leaves that one file where it was rather than aborting startup
+/// — the app already knows how to create fresh files in the new location.
+fn migrate_legacy_data_dir(app: &AppHandle) {
+    let Ok(old_dir) = app.path().app_data_dir() else {
+        return;
+    };
+    if !old_dir.exists() {
+        return;
+    }
+    let new_dir = db::data_dir(app);
+    if old_dir == new_dir {
+        return;
+    }
+    if std::fs::create_dir_all(&new_dir).is_err() {
+        return;
+    }
+
+    for file_name in ["pulse.db", "pulse.db-wal", "pulse.db-shm", "settings.json"] {
+        let old_path = old_dir.join(file_name);
+        let new_path = new_dir.join(file_name);
+        if old_path.exists() && !new_path.exists() {
+            match std::fs::rename(&old_path, &new_path) {
+                Ok(()) => log::info!("migrated {file_name} to unified data dir"),
+                Err(err) => log::error!("failed to migrate {file_name}: {err}"),
+            }
+        }
+    }
+
+    // Best-effort cleanup: only succeeds if the old folder is now empty.
+    let _ = std::fs::remove_dir(&old_dir);
+}
+
 /// Checks the GitHub Releases endpoint configured in tauri.conf.json for a
 /// newer version; if one exists, downloads and installs it, then relaunches
 /// so it takes effect. Tracked history is untouched either way — it lives in
@@ -181,6 +218,7 @@ pub fn run() {
         ])
         .setup(|app| {
             log::info!("Pulse {} starting up", app.package_info().version);
+            migrate_legacy_data_dir(app.handle());
             let conn = db::open(app.handle())?;
             let state = AppState::new(conn)?;
             app.manage(state);
@@ -193,7 +231,7 @@ pub fn run() {
             });
 
             let confirm_shortcut = {
-                let store = app.store("settings.json")?;
+                let store = app.store(db::data_dir(app.handle()).join("settings.json"))?;
                 store
                     .get("confirmShortcut")
                     .and_then(|value| value.as_str().map(str::to_string))
@@ -216,7 +254,7 @@ pub fn run() {
             }
 
             let activity_detection_enabled = {
-                let store = app.store("settings.json")?;
+                let store = app.store(db::data_dir(app.handle()).join("settings.json"))?;
                 store
                     .get("activityDetectionEnabled")
                     .and_then(|value| value.as_bool())

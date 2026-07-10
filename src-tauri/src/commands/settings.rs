@@ -7,9 +7,14 @@ use tauri_plugin_autostart::ManagerExt;
 use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut};
 use tauri_plugin_store::StoreExt;
 
-const SETTINGS_STORE: &str = "settings.json";
 pub const DEFAULT_CONFIRM_SHORTCUT: &str = "CommandOrControl+Shift+KeyY";
 const ACTIVITY_DETECTION_KEY: &str = "activityDetectionEnabled";
+
+/// Absolute path so `tauri-plugin-store` writes next to the database instead
+/// of its own default (roaming `app_data_dir`) — see `db::data_dir`.
+fn settings_store_path(app: &AppHandle) -> std::path::PathBuf {
+    crate::db::data_dir(app).join("settings.json")
+}
 
 /// Parses our own accelerator strings ("CommandOrControl+Shift+KeyY") into a
 /// `Shortcut` directly from `Modifiers`/`Code`, instead of going through the
@@ -63,7 +68,7 @@ pub fn reset_all_data(app: AppHandle) -> Result<TrackingState, String> {
 
 #[tauri::command]
 pub fn get_confirm_shortcut(app: AppHandle) -> Result<String, String> {
-    let store = app.store(SETTINGS_STORE).map_err(|err| err.to_string())?;
+    let store = app.store(settings_store_path(&app)).map_err(|err| err.to_string())?;
     Ok(store
         .get("confirmShortcut")
         .and_then(|value| value.as_str().map(str::to_string))
@@ -73,7 +78,7 @@ pub fn get_confirm_shortcut(app: AppHandle) -> Result<String, String> {
 #[tauri::command]
 pub fn set_confirm_shortcut(app: AppHandle, shortcut: String) -> Result<String, String> {
     let previous = {
-        let store = app.store(SETTINGS_STORE).map_err(|err| err.to_string())?;
+        let store = app.store(settings_store_path(&app)).map_err(|err| err.to_string())?;
         store
             .get("confirmShortcut")
             .and_then(|value| value.as_str().map(str::to_string))
@@ -108,7 +113,7 @@ pub fn set_confirm_shortcut(app: AppHandle, shortcut: String) -> Result<String, 
         }
     }
 
-    let store = app.store(SETTINGS_STORE).map_err(|err| err.to_string())?;
+    let store = app.store(settings_store_path(&app)).map_err(|err| err.to_string())?;
     store.set("confirmShortcut", serde_json::Value::String(shortcut.clone()));
     store.save().map_err(|err| err.to_string())?;
 
@@ -128,7 +133,7 @@ pub fn set_activity_detection_enabled(
 ) -> Result<bool, String> {
     *state.activity_detection_enabled.lock().unwrap() = enabled;
 
-    let store = app.store(SETTINGS_STORE).map_err(|err| err.to_string())?;
+    let store = app.store(settings_store_path(&app)).map_err(|err| err.to_string())?;
     store.set(ACTIVITY_DETECTION_KEY, serde_json::Value::Bool(enabled));
     store.save().map_err(|err| err.to_string())?;
 

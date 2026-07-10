@@ -61,7 +61,9 @@ ora.
 L'app controlla da sola all'avvio se c'è una versione più recente su GitHub
 Releases (via `tauri-plugin-updater`) e, se sì, la scarica, verifica, installa
 e riavvia senza bisogno di scaricare nulla manualmente. Lo storico dati non è
-mai a rischio: vive in `%APPDATA%`, separato dalla cartella di installazione.
+mai a rischio: vive in `%LOCALAPPDATA%\app.pulse.desktop\` (database, log e
+impostazioni tutti nella stessa cartella dalla v2.0.2), separato dalla
+cartella di installazione (`%LOCALAPPDATA%\Programs\Pulse\`).
 
 Per farlo funzionare il repo **Pulse è stato reso pubblico** (era privato —
 gli URL di download delle release di un repo privato non sono raggiungibili
