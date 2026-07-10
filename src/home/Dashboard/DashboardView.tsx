@@ -205,6 +205,8 @@ export function DashboardView() {
         </div>
         <TopEntriesRanking
           entries={rankingEntries}
+          monthlyBuckets={allTimeMonthlyBuckets}
+          metric={rankingMetric}
           emptyLabel={
             rankingMetric === "project" ? "Nessun progetto tracciato ancora." : "Nessuna attività tracciata ancora."
           }

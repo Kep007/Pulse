@@ -1,6 +1,6 @@
 [package]
 name = "pulse"
-version = "2.0.3"
+version = "2.0.4"
 description = "Automatic desktop time tracker for client work"
 authors = ["Pulse"]
 edition = "2021"

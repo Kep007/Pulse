@@ -60,7 +60,17 @@ export function TimeBreakdownBar({ entries, colorById, emptyLabel }: TimeBreakdo
           />
         ))}
       </div>
-      <ul className="breakdown-legend">
+      {/* Column-major: reading top-to-bottom down the first column, then the
+          second, follows the biggest-to-smallest order — the default
+          row-major grid made the ranking zigzag left/right across rows,
+          which read as unordered. */}
+      <ul
+        className="breakdown-legend"
+        style={{
+          gridAutoFlow: "column",
+          gridTemplateRows: `repeat(${Math.ceil(segments.length / 2)}, auto)`,
+        }}
+      >
         {segments.map((segment) => (
           <li key={segment.id}>
             <span className="breakdown-swatch" style={{ background: segment.color }} />

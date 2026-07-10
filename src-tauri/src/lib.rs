@@ -218,6 +218,14 @@ pub fn run() {
         ])
         .setup(|app| {
             log::info!("Pulse {} starting up", app.package_info().version);
+            // The toast window must never intercept mouse input before the
+            // frontend takes over managing it (ToastWindow.tsx flips this
+            // off only for the confirm toast, which has clickable buttons) —
+            // it's transparent and always-on-top, so any stretch where it's
+            // visible without click-through is an invisible dead zone.
+            if let Some(toast) = app.get_webview_window("toast") {
+                let _ = toast.set_ignore_cursor_events(true);
+            }
             migrate_legacy_data_dir(app.handle());
             let conn = db::open(app.handle())?;
             let state = AppState::new(conn)?;

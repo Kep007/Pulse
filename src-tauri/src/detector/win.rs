@@ -7,7 +7,8 @@ use windows::Win32::UI::Input::KeyboardAndMouse::{
     GetAsyncKeyState, GetLastInputInfo, LASTINPUTINFO, VK_CONTROL,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
-    GetForegroundWindow, GetWindowTextW, GetWindowThreadProcessId,
+    GetForegroundWindow, GetWindowTextW, GetWindowThreadProcessId, SetWindowPos, HWND_TOPMOST,
+    SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE,
 };
 
 #[derive(Debug, Clone)]
@@ -69,6 +70,29 @@ unsafe fn read_process_exe_path(pid: u32) -> Option<String> {
     query_result.ok()?;
 
     Some(String::from_utf16_lossy(&buffer[..size as usize]))
+}
+
+/// Re-places a window at the top of the topmost band via SetWindowPos,
+/// unconditionally. This cannot go through Tauri's `set_always_on_top`: tao
+/// caches its window flags and diffs against them (`WindowFlags::apply_diff`
+/// returns early when nothing changed), so once it believes a window is
+/// already topmost, every further `set_always_on_top(true)` is a silent
+/// no-op — while Windows itself can quietly demote the window out of the
+/// topmost band (observed when opening File Explorer windows) without tao's
+/// cache ever learning about it. Calling the OS directly is what makes the
+/// periodic reassertion in `detector::tick` actually reach Windows each time.
+pub fn force_topmost(hwnd: isize) {
+    unsafe {
+        let _ = SetWindowPos(
+            HWND(hwnd as *mut _),
+            Some(HWND_TOPMOST),
+            0,
+            0,
+            0,
+            0,
+            SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE,
+        );
+    }
 }
 
 /// Checks the live key state directly rather than relying on DOM keyboard

@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useLayoutEffect, useRef, useState } from "react";
 import type { CSSProperties, ReactNode } from "react";
 import { createPortal } from "react-dom";
 
@@ -36,9 +36,31 @@ export function TooltipTrigger({
   children,
 }: TooltipTriggerProps) {
   const ref = useRef<HTMLButtonElement>(null);
+  const portalRef = useRef<HTMLDivElement>(null);
   const [portal, setPortal] = useState<{ left: number; top: number; placement: Placement } | null>(
     null,
   );
+
+  // `left` centers the tooltip on the trigger (translate(-50%)), which near
+  // the window's left/right edge would push part of it off-screen — and with
+  // `width: max-content` (see .cell-tooltip-portal) there's no longer any
+  // shrink-to-fit to hide that. Nudge it back inside after it has rendered,
+  // when its real width is known; written straight to the DOM to avoid a
+  // re-render loop.
+  useLayoutEffect(() => {
+    const el = portalRef.current;
+    if (!el || !portal) {
+      return;
+    }
+    const half = el.offsetWidth / 2;
+    const clamped = Math.min(
+      Math.max(portal.left, VIEWPORT_MARGIN + half),
+      window.innerWidth - VIEWPORT_MARGIN - half,
+    );
+    if (clamped !== portal.left) {
+      el.style.left = `${clamped}px`;
+    }
+  }, [portal]);
 
   function show() {
     const el = ref.current;
@@ -76,6 +98,7 @@ export function TooltipTrigger({
       {portal
         ? createPortal(
             <div
+              ref={portalRef}
               className={`cell-tooltip-portal cell-tooltip-portal-${portal.placement}`}
               style={{ left: portal.left, top: portal.top }}
             >

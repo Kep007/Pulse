@@ -139,13 +139,17 @@ pub fn spawn_polling(app: AppHandle) {
 /// without ever clearing its flag — e.g. opening a File Explorer window has
 /// been observed to leave the widget logically topmost but visually behind
 /// it — so `alwaysOnTop: true` in tauri.conf.json alone isn't enough; it only
-/// takes effect once, at window creation. Cheap enough (a couple of no-op
-/// SetWindowPos calls) to just do unconditionally on the existing 2s poll
-/// rather than adding a second timer.
+/// takes effect once, at window creation. Goes through `win::force_topmost`
+/// (raw SetWindowPos), NOT `window.set_always_on_top(true)`: tao diffs
+/// against its cached flags and silently drops the call when it believes the
+/// window is already topmost — which is exactly the broken state being
+/// repaired, so the previous implementation on top of it never did anything.
 fn reassert_always_on_top(app: &AppHandle) {
     for label in ["main", "toast"] {
         if let Some(window) = app.get_webview_window(label) {
-            let _ = window.set_always_on_top(true);
+            if let Ok(hwnd) = window.hwnd() {
+                win::force_topmost(hwnd.0 as isize);
+            }
         }
     }
 }

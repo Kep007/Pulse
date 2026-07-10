@@ -27,6 +27,22 @@ fn is_combining_mark(c: char) -> bool {
     matches!(c as u32, 0x0300..=0x036F)
 }
 
+/// Normalized phrases that veto project matching for the whole title. These
+/// are documents *about* many projects at once — e.g. the agency's master
+/// spreadsheet listing every client — whose titles inevitably contain real
+/// project names ("Progetti LT Consulting" contains project "LT"), so any
+/// term match inside them is a false positive by construction: the user is
+/// consulting the overview, not working on the project whose name happens
+/// to appear. Compared against `normalize_text(title)`, so case, accents
+/// and separators don't matter.
+const EXCLUDED_TITLE_PHRASES: &[&str] = &["progetti lt consulting"];
+
+fn is_excluded_title(normalized_title: &str) -> bool {
+    EXCLUDED_TITLE_PHRASES
+        .iter()
+        .any(|phrase| normalized_title.contains(phrase))
+}
+
 fn compile_word_boundary_regex(normalized_term: &str) -> Option<Regex> {
     Regex::new(&format!(r"\b{}\b", regex::escape(normalized_term))).ok()
 }
@@ -110,6 +126,10 @@ impl Matcher {
         let title = normalize_text(window_title);
         let process = normalize_text(process_name);
 
+        if is_excluded_title(&title) {
+            return None;
+        }
+
         self.project_terms
             .iter()
             .filter(|term| term.pattern.is_match(&title) || term.pattern.is_match(&process))
@@ -133,5 +153,34 @@ impl Matcher {
             })
             .max_by_key(|rule| rule.priority)
             .map(|rule| rule.activity_type_id)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn matcher_with_lt() -> Matcher {
+        Matcher::build(&[(1, vec!["LT".to_string()])], &[])
+    }
+
+    #[test]
+    fn excluded_title_never_matches_a_project() {
+        let matcher = matcher_with_lt();
+        assert_eq!(
+            matcher.match_project("Progetti LT Consulting.xlsx - Excel - Google Chrome", "chrome"),
+            None,
+        );
+        // Case/separator variations still hit the normalized exclusion.
+        assert_eq!(
+            matcher.match_project("PROGETTI_LT_CONSULTING - Fogli Google", "chrome"),
+            None,
+        );
+    }
+
+    #[test]
+    fn normal_titles_still_match() {
+        let matcher = matcher_with_lt();
+        assert_eq!(matcher.match_project("LT - preventivo sito", "chrome"), Some(1));
     }
 }

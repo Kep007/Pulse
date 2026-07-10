@@ -540,6 +540,11 @@
   position: fixed;
   z-index: 50;
   pointer-events: none;
+  /* Size to content regardless of how little viewport remains to the right
+     of the `left` coordinate — a fixed box near the right window edge
+     otherwise shrinks-to-fit and truncates the entry names (TooltipTrigger
+     clamps the final position back inside the viewport). */
+  width: max-content;
 }
 
 .cell-tooltip-portal-top {
@@ -552,6 +557,9 @@
 
 .cell-tooltip {
   min-width: 160px;
+  /* Safety cap so a pathologically long name still ellipsizes (the li span's
+     overflow rules) instead of producing a viewport-wide tooltip. */
+  max-width: 320px;
   padding: 10px 12px;
   border-radius: 8px;
   background: #172033;
@@ -931,10 +939,18 @@
   color: #172033;
 }
 
+/* A TooltipTrigger <button> since the monthly-recap tooltip was added —
+   the resets keep it looking like the plain track div it used to be. */
 .ranking-track {
   height: 14px;
+  border: 0;
+  padding: 0;
   border-radius: 4px;
   background: #f1f3f6;
+  cursor: pointer;
+  text-align: left;
+  display: block;
+  width: 100%;
 }
 
 .ranking-bar {

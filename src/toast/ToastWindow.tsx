@@ -25,6 +25,7 @@ type Display =
 export function ToastWindow() {
   const [display, setDisplay] = useState<Display | null>(null);
   const dismissTimer = useRef<number | null>(null);
+  const applyQueue = useRef(Promise.resolve());
 
   useEffect(() => {
     let cancelled = false;
@@ -94,22 +95,28 @@ export function ToastWindow() {
   }, [display]);
 
   useEffect(() => {
-    let cancelled = false;
-
     async function applyVisibility() {
       const win = getCurrentWindow();
 
       if (!display) {
+        // Belt and braces: even while hidden, make sure the window can't
+        // swallow clicks if anything ever shows it out of band.
+        await win.setIgnoreCursorEvents(true);
         await win.hide();
         return;
       }
 
+      // Only the confirm toast has anything to click (the Sì/No buttons).
+      // The info toast is purely visual, and this window is transparent +
+      // always-on-top: without click-through, its whole rectangle silently
+      // eats every mouse event meant for the app underneath — customers hit
+      // this as a "dead zone" right where the popup appears (e.g. Figma's
+      // export dropdown, which opens exactly above the widget's corner).
+      await win.setIgnoreCursorEvents(display.kind !== "confirm");
+
       const size = display.kind === "confirm" ? CONFIRM_SIZE : INFO_SIZE;
       const scale = await win.scaleFactor();
       const monitor = await currentMonitor();
-      if (cancelled) {
-        return;
-      }
 
       await win.setSize(new LogicalSize(size.width, size.height));
 
@@ -148,11 +155,18 @@ export function ToastWindow() {
       await win.show();
     }
 
-    applyVisibility().catch((error) => console.error("Unable to show toast window", error));
-
-    return () => {
-      cancelled = true;
-    };
+    // Strictly serialized, never cancelled: each state's show/hide runs to
+    // completion before the next one starts. Letting them overlap caused the
+    // worst bug this window ever had — a hide() for the new state completing
+    // while the previous show() was still mid-flight, leaving a window that
+    // React had emptied (fully transparent) but Windows still considered
+    // visible: an invisible, always-on-top rectangle parked above the widget
+    // that blocked clicks until the next toast happened to hide it. That's
+    // also why pausing the timer "fixed" it for customers — the pause toast
+    // itself ran a clean show→hide cycle.
+    applyQueue.current = applyQueue.current
+      .then(applyVisibility)
+      .catch((error) => console.error("Unable to update toast window", error));
   }, [display]);
 
   function respond(confirmed: boolean) {
