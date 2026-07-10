@@ -15,34 +15,48 @@ import { clampToScreen, dockToSavedCorner, getSavedScale } from "./widget/widget
 const COLLAPSED_HEIGHT = 48;
 const MIN_COLLAPSED_WIDTH = 90;
 const MAX_COLLAPSED_WIDTH = 300;
-const WIDGET_PADDING = 7;
+// All four sides of the collapsed pill (keep in sync with .widget's padding
+// in styles.css) — equal by request, so the pill reads as evenly inset.
+const WIDGET_PADDING = 8;
 const SWITCH_ICON_SIZE = 18;
 
-// Tuned for the layout with the activity chip visible; with it hidden
-// (activity detection off), the window shrinks by the chip's own measured
-// footprint — see the measureChipRef sizing effect below — rather than
-// leaving a fixed gap of dead space that the column's justify-content:
-// center would otherwise split evenly above and below the remaining rows.
-// +8 over the rows' own content height accounts for .drag-zone's wider
-// row-gap (see styles.css), which pushes the name row below the corner
-// timer's box — without the extra height, that push would come out of the
-// activity chip/action buttons' space instead, clipping them.
-const EXPANDED_HEIGHT = 140;
+// The expanded pill's exact content height without the activity chip, summed
+// from the layout's fixed pieces (styles.css): 12 padding-top + 11 label row
+// (11px label, line-height 1) + 10 .drag-zone row-gap + 24 name row (the
+// inline-switch button, taller than the 16px name) + 16 above the buttons
+// (8px .widget flex gap + 8px .actions margin-top) + 30 buttons + 12
+// padding-bottom. Sizing the window to exactly this (plus the chip's
+// measured footprint when enabled) is what makes the visual bottom inset
+// equal EXPANDED_PADDING like the other three sides — the previous
+// hand-tuned total carried ~13px of slack that .widget's justify-content:
+// center split above and below, which read as extra top/bottom padding
+// (measured at 18px bottom vs 12px sides on a customer screenshot).
+const EXPANDED_BASE_HEIGHT = 115;
 // .activity-chip's margin-top (-6px) eats back 6 of the .widget flex gap's
 // 8px, netting a 2px gap above it — the only piece of its footprint that
 // isn't part of its own measured box.
 const CHIP_GAP_ABOVE = 2;
 const EXPANDED_MIN_WIDTH = MAX_COLLAPSED_WIDTH;
 const EXPANDED_MAX_WIDTH = 420;
+// All four sides of the expanded pill, equal by request (keep in sync with
+// .widget.expanded's padding in styles.css). The old asymmetric extra on
+// the right (28px total) existed to keep the inline-switch button clear of
+// the corner timer — that clearance is now guaranteed properly instead, by
+// the window width itself accounting for the timer (see NAME_TO_TIMER_GAP).
 const EXPANDED_PADDING = 12;
-// Extra clearance on top of EXPANDED_PADDING, right side only — widens the
-// gap between the inline-switch button and the window's right edge (where
-// the corner timer sits, see `.label-row time` in styles.css), by request,
-// without pushing the left side out to match (which would just make the
-// pill wider than it needs to be for no visual benefit).
-const EXPANDED_PADDING_RIGHT_EXTRA = 16;
 const INLINE_SWITCH_WIDTH = 24;
 const NAME_ROW_GAP = 4;
+// Fixed horizontal clearance between the inline-switch button (trailing the
+// project name) and the corner timer's left edge. Baking the timer's own
+// measured width plus this gap into the expanded window's width is what
+// keeps that spacing constant however long the (≤MAX_NAME_CHARS) name is —
+// previously the width ignored the timer entirely, so a 15-char name ran
+// the switch button right up against (or under) the timer. Short names
+// don't shrink below EXPANDED_MIN_WIDTH, where the gap simply grows.
+const NAME_TO_TIMER_GAP = 24;
+// Font size of the expanded pill's corner timer (`.label-row time` in
+// styles.css) — the hidden measurement clone must match it.
+const CORNER_TIMER_FONT_SIZE = 32;
 // Project names are short by convention (enforced when naming them in the
 // Projects tab), so the window only ever needs to grow up to this many
 // characters' worth of width — anything longer gets ellipsized instead of
@@ -70,7 +84,7 @@ export function App() {
   const [isDocked, setIsDocked] = useState(false);
   const [collapsedWidth, setCollapsedWidth] = useState(MIN_COLLAPSED_WIDTH);
   const [expandedWidth, setExpandedWidth] = useState(EXPANDED_MIN_WIDTH);
-  const [expandedHeight, setExpandedHeight] = useState(EXPANDED_HEIGHT);
+  const [expandedHeight, setExpandedHeight] = useState(EXPANDED_BASE_HEIGHT);
   const [nameWidth, setNameWidth] = useState<number | undefined>(undefined);
   // Multiplies the whole widget via CSS transform (see the render below)
   // rather than reworking the layout to be resolution-independent — every
@@ -80,6 +94,7 @@ export function App() {
   const [scale, setScale] = useState(1);
   const measureNameRef = useRef<HTMLElement>(null);
   const measureTimeRef = useRef<HTMLTimeElement>(null);
+  const measureCornerTimeRef = useRef<HTMLTimeElement>(null);
   const measureChipRef = useRef<HTMLSpanElement>(null);
   // Activities are parked (see Settings) — default to hidden rather than
   // flashing the chip on for the instant before this resolves, since off is
@@ -178,22 +193,28 @@ export function App() {
     // Expanded mode used to stay at a fixed width regardless of the name,
     // so a long one (the "Nessun progetto rilevato" fallback is the usual
     // culprit) had nowhere to go but to run into the switch button and the
-    // corner timer instead of the window making room for it.
-    const expandedContentWidth = nw + NAME_ROW_GAP + INLINE_SWITCH_WIDTH;
+    // corner timer instead of the window making room for it. The corner
+    // timer's width (measured at its own 32px size, roughly double the
+    // collapsed timer's) is part of the content too — see NAME_TO_TIMER_GAP.
+    const cornerTimeWidth = hasTimer
+      ? Math.ceil((measureCornerTimeRef.current?.getBoundingClientRect().width ?? 0) / scale)
+      : 0;
+    const expandedContentWidth =
+      nw +
+      NAME_ROW_GAP +
+      INLINE_SWITCH_WIDTH +
+      (hasTimer ? NAME_TO_TIMER_GAP + cornerTimeWidth : 0);
     const nextExpandedWidth = Math.min(
       EXPANDED_MAX_WIDTH,
-      Math.max(
-        EXPANDED_MIN_WIDTH,
-        expandedContentWidth + EXPANDED_PADDING + (EXPANDED_PADDING + EXPANDED_PADDING_RIGHT_EXTRA),
-      ),
+      Math.max(EXPANDED_MIN_WIDTH, expandedContentWidth + EXPANDED_PADDING * 2),
     );
     setExpandedWidth(nextExpandedWidth);
 
-    const chipHeight = activityEnabled
-      ? 0
-      : Math.ceil((measureChipRef.current?.getBoundingClientRect().height ?? 0) / scale) +
-        CHIP_GAP_ABOVE;
-    setExpandedHeight(EXPANDED_HEIGHT - chipHeight);
+    const chipFootprint = activityEnabled
+      ? Math.ceil((measureChipRef.current?.getBoundingClientRect().height ?? 0) / scale) +
+        CHIP_GAP_ABOVE
+      : 0;
+    setExpandedHeight(EXPANDED_BASE_HEIGHT + chipFootprint);
   }, [projectName, hasTimer, activityEnabled, scale]);
 
   const expandedSize = useMemo(
@@ -330,6 +351,11 @@ export function App() {
       >
         <strong ref={measureNameRef}>{projectName}</strong>
         {hasTimer && <time ref={measureTimeRef}>00:00:00</time>}
+        {hasTimer && (
+          <time ref={measureCornerTimeRef} style={{ fontSize: CORNER_TIMER_FONT_SIZE }}>
+            00:00:00
+          </time>
+        )}
         <span ref={measureChipRef} className="activity-chip">
           <IconTag size={11} />
           <span>{activityName}</span>

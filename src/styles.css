@@ -39,6 +39,9 @@ button {
      fills its window height exactly, so this is a no-op there. */
   justify-content: center;
   gap: 8px;
+  /* Equal on all four sides (collapsed state — .expanded overrides with its
+     own equal padding). WIDGET_PADDING in App.tsx sizes the window to
+     match: keep the two in sync. */
   padding: 8px;
   border-radius: 12px;
   background: #ffffff;
@@ -56,21 +59,14 @@ button {
   opacity: 0.15;
 }
 
+/* Equal padding on all four sides, by request (EXPANDED_PADDING in App.tsx
+   sizes the window to match — keep the two in sync). The old wider right
+   side (28px) kept the inline-switch button clear of the corner timer; that
+   clearance now comes from the window width itself accounting for the
+   timer's measured width (see NAME_TO_TIMER_GAP in App.tsx). */
 .widget.expanded {
   border-radius: 14px;
-  padding-left: 12px;
-  /* Extra 16px over the left side's 12px (see EXPANDED_PADDING_RIGHT_EXTRA
-     in App.tsx, which sizes the window to match) — widens the horizontal
-     gap between the inline-switch button and the window's right edge, where
-     the corner timer sits, by request. */
-  padding-right: 28px;
-}
-
-/* Collapsed pill only: less side padding than top/bottom (WIDGET_PADDING in
-   App.tsx sizes the window to match — keep the two in sync). */
-.widget:not(.expanded) {
-  padding-left: 7px;
-  padding-right: 7px;
+  padding: 12px;
 }
 
 .drag-zone {
@@ -100,9 +96,10 @@ button {
      wider window never helped). Widening the row-gap instead pushes the
      name row below the timer's box outright, which is why EXPANDED_HEIGHT
      in App.tsx grew by the same amount to keep the rows below from being
-     pushed past the window's bottom edge. (Extra horizontal breathing room
-     between the switch button and the timer is handled separately, via
-     .widget.expanded's padding-right — see below.) */
+     pushed past the window's bottom edge. (Horizontal breathing room
+     between the switch button and the timer is handled separately: the
+     window width reserves the timer's measured width plus a fixed gap —
+     see NAME_TO_TIMER_GAP in App.tsx.) */
   gap: 10px 8px;
   user-select: none;
 }
@@ -189,8 +186,10 @@ button {
   /* Absolutely positioned elements sit relative to their containing
      block's padding box, ignoring the padding itself — top/right: 0 landed
      flush against the corner instead of respecting .widget.expanded's own
-     inset (8px top, 12px right), so those exact values are repeated here. */
-  top: 8px;
+     12px inset, so that exact value is repeated here. Font size must stay
+     in sync with CORNER_TIMER_FONT_SIZE in App.tsx, which measures the
+     timer at this size to reserve room for it in the window width. */
+  top: 12px;
   right: 12px;
   font-size: 32px;
 }
