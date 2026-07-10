@@ -7,6 +7,21 @@ import { TooltipTrigger } from "./TooltipTrigger";
 
 const DAY_MINUTES = 24 * 60;
 
+// Blocks shorter than this are visual noise — hair-thin slivers that split
+// an otherwise continuous session in two (typically accidental glances at
+// the wrong window, recorded before the backend learned to absorb them; the
+// customer's history still contains plenty). They're dropped from the track
+// but their seconds still count in every total, which is computed from the
+// raw segments. The still-open live segment is always kept, however young:
+// hiding what the widget says is being tracked right now would read as a bug.
+const MICRO_BLOCK_SECONDS = 60;
+
+// Two same-project blocks separated by no more than this render as one
+// continuous bar — the gap is either a hidden micro-block or a sub-minute
+// tracking hiccup, and a hairline crack in the middle of a real session is
+// exactly the artifact this component is trying to stop showing.
+const MERGE_GAP_MINUTES = 1;
+
 export function isoDate(date: Date) {
   return date.toISOString().slice(0, 10);
 }
@@ -34,9 +49,16 @@ function formatMinutesOfDay(totalMinutes: number) {
   return `${hours}:${minutes}`;
 }
 
+// Not 1:1 with SegmentDto: a block can be several same-project segments
+// merged into one continuous bar (see MERGE_GAP_MINUTES), so it carries its
+// own start/end/duration instead of a single segment reference.
 type Block = {
   key: number;
-  segment: SegmentDto;
+  projectId: number | null;
+  projectName: string;
+  startedAt: string;
+  endedAt: string | null;
+  durationSeconds: number;
   startMinutes: number;
   endMinutes: number;
   color: string;
@@ -101,17 +123,52 @@ export function DailyTimeline({ date, projects }: DailyTimelineProps) {
   }, [segments]);
 
   const blocks = useMemo<Block[]>(() => {
-    return segments
+    const raw = segments
       .filter((segment) => segment.durationSeconds > 0)
-      .map((segment, index) => {
+      .map((segment, index): Block => {
         const start = new Date(segment.startedAt);
         const startMinutes = start.getHours() * 60 + start.getMinutes() + start.getSeconds() / 60;
         const endMinutes = Math.min(startMinutes + segment.durationSeconds / 60, DAY_MINUTES);
         const color = segment.project
           ? projectColors.get(segment.project.id) ?? OTHER_COLOR
           : OTHER_COLOR;
-        return { key: index, segment, startMinutes, endMinutes, color };
+        return {
+          key: index,
+          projectId: segment.project?.id ?? null,
+          projectName: segment.project?.name ?? "Nessun progetto",
+          startedAt: segment.startedAt,
+          endedAt: segment.endedAt,
+          durationSeconds: segment.durationSeconds,
+          startMinutes,
+          endMinutes,
+          color,
+        };
       });
+
+    const visible = raw.filter(
+      (block) => block.durationSeconds >= MICRO_BLOCK_SECONDS || block.endedAt === null,
+    );
+    // A day made up entirely of micro-blocks (tracking started moments ago,
+    // or a historical day totalling under a minute) still deserves a track
+    // over "Nessun dato" next to a non-zero daily total.
+    const kept = visible.length > 0 ? visible : raw;
+
+    const merged: Block[] = [];
+    for (const block of kept) {
+      const previous = merged[merged.length - 1];
+      if (
+        previous &&
+        previous.projectId === block.projectId &&
+        block.startMinutes - previous.endMinutes <= MERGE_GAP_MINUTES
+      ) {
+        previous.endMinutes = Math.max(previous.endMinutes, block.endMinutes);
+        previous.durationSeconds += block.durationSeconds;
+        previous.endedAt = block.endedAt;
+        continue;
+      }
+      merged.push({ ...block });
+    }
+    return merged;
   }, [segments, projectColors]);
 
   // A fixed 00:00-24:00 axis squeezed a few real hours of work into a sliver
@@ -143,23 +200,22 @@ export function DailyTimeline({ date, projects }: DailyTimelineProps) {
   const legend = useMemo<LegendEntry[]>(() => {
     const seen = new Map<number, LegendEntry>();
     for (const block of blocks) {
-      const project = block.segment.project;
-      if (!project) {
+      if (block.projectId === null) {
         continue;
       }
-      if (!seen.has(project.id)) {
-        seen.set(project.id, {
-          id: project.id,
-          name: project.name,
+      if (!seen.has(block.projectId)) {
+        seen.set(block.projectId, {
+          id: block.projectId,
+          name: block.projectName,
           color: block.color,
-          totalSeconds: dailyTotalsByProject.get(project.id) ?? 0,
+          totalSeconds: dailyTotalsByProject.get(block.projectId) ?? 0,
           ranges: [],
         });
       }
-      seen.get(project.id)!.ranges.push({
-        startLabel: formatTimeOfDay(block.segment.startedAt),
-        endLabel: block.segment.endedAt ? formatTimeOfDay(block.segment.endedAt) : "ora",
-        durationSeconds: block.segment.durationSeconds,
+      seen.get(block.projectId)!.ranges.push({
+        startLabel: formatTimeOfDay(block.startedAt),
+        endLabel: block.endedAt ? formatTimeOfDay(block.endedAt) : "ora",
+        durationSeconds: block.durationSeconds,
       });
     }
     return Array.from(seen.values());
@@ -175,12 +231,12 @@ export function DailyTimeline({ date, projects }: DailyTimelineProps) {
     <div className="daily-timeline">
       <div className="daily-timeline-track">
         {blocks.map((block) => {
-          const projectName = block.segment.project?.name ?? "Nessun progetto";
-          const startLabel = formatTimeOfDay(block.segment.startedAt);
-          const endLabel = block.segment.endedAt ? formatTimeOfDay(block.segment.endedAt) : "ora";
-          const dailyTotal = block.segment.project
-            ? dailyTotalsByProject.get(block.segment.project.id) ?? 0
-            : block.segment.durationSeconds;
+          const startLabel = formatTimeOfDay(block.startedAt);
+          const endLabel = block.endedAt ? formatTimeOfDay(block.endedAt) : "ora";
+          const dailyTotal =
+            block.projectId !== null
+              ? dailyTotalsByProject.get(block.projectId) ?? 0
+              : block.durationSeconds;
 
           return (
             <TooltipTrigger
@@ -191,12 +247,12 @@ export function DailyTimeline({ date, projects }: DailyTimelineProps) {
                 width: `${((block.endMinutes - block.startMinutes) / span) * 100}%`,
                 background: block.color,
               }}
-              ariaLabel={`${projectName}: ${startLabel} – ${endLabel}, ${formatHoursMinutes(block.segment.durationSeconds)}`}
+              ariaLabel={`${block.projectName}: ${startLabel} – ${endLabel}, ${formatHoursMinutes(block.durationSeconds)}`}
               renderTooltip={() => (
                 <div className="cell-tooltip" role="tooltip">
-                  <strong>{projectName}</strong>
+                  <strong>{block.projectName}</strong>
                   <span className="cell-tooltip-total">
-                    {startLabel} – {endLabel} · {formatHoursMinutes(block.segment.durationSeconds)}
+                    {startLabel} – {endLabel} · {formatHoursMinutes(block.durationSeconds)}
                   </span>
                   <p className="cell-tooltip-empty">
                     Totale in giornata: {formatHoursMinutes(dailyTotal)}

@@ -316,6 +316,18 @@ pub fn get_activity_type(conn: &Connection, id: i64) -> rusqlite::Result<Option<
     .optional()
 }
 
+/// An auto-detected open segment younger than this when the next transition
+/// arrives is treated as an accidental glance — the user landed on the
+/// wrong window while hunting for the one they actually wanted (outlasting
+/// the detector's ~5s debounce, e.g. pausing to read something) — and is
+/// absorbed rather than kept: deleted, with its time span inherited by the
+/// incoming segment. Nothing under a minute is ever worth billing to the
+/// wrong client, while the destination segment keeping the span means no
+/// tracked time is lost and the daily timeline stays gap-free. Manual
+/// segments are never absorbed: an explicit user choice stays recorded no
+/// matter how brief.
+const ABSORB_AUTO_SEGMENT_UNDER_SECS: i64 = 60;
+
 /// Closes the current open segment (if any) and opens a new one, all in one
 /// transaction — this is the single write path for every project/activity/
 /// source transition, whether auto-detected or manually chosen.
@@ -329,6 +341,30 @@ pub fn transition_segment(
     process_name: Option<&str>,
 ) -> rusqlite::Result<()> {
     let tx = conn.unchecked_transaction()?;
+
+    // Micro-segment absorption (see ABSORB_AUTO_SEGMENT_UNDER_SECS). `at`
+    // moving back to the absorbed segment's start is what makes a chain of
+    // quick glances collapse into the segment the user finally settles on.
+    let mut at = at;
+    let open: Option<(i64, String, String)> = tx
+        .query_row(
+            "SELECT id, started_at, source FROM time_entries WHERE ended_at IS NULL",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        )
+        .optional()?;
+    if let Some((id, started_at, open_source)) = open {
+        if open_source == Source::Auto.as_str() {
+            if let Ok(started) = DateTime::parse_from_rfc3339(&started_at) {
+                let started = started.with_timezone(&Utc);
+                let age = (at - started).num_seconds();
+                if (0..ABSORB_AUTO_SEGMENT_UNDER_SECS).contains(&age) {
+                    tx.execute("DELETE FROM time_entries WHERE id = ?1", [id])?;
+                    at = started;
+                }
+            }
+        }
+    }
 
     tx.execute(
         "UPDATE time_entries
@@ -448,4 +484,110 @@ pub fn reset_all_data(conn: &Connection, at: DateTime<Utc>) -> rusqlite::Result<
     )?;
     conn.execute("VACUUM", [])?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use chrono::Duration;
+
+    fn test_conn() -> Connection {
+        let conn = Connection::open_in_memory().unwrap();
+        run_migrations(&conn).unwrap();
+        conn
+    }
+
+    fn segments(conn: &Connection) -> Vec<(Option<i64>, String, Option<String>, String)> {
+        let mut stmt = conn
+            .prepare("SELECT project_id, started_at, ended_at, source FROM time_entries ORDER BY started_at")
+            .unwrap();
+        stmt.query_map([], |row| {
+            Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?))
+        })
+        .unwrap()
+        .collect::<rusqlite::Result<_>>()
+        .unwrap()
+    }
+
+    #[test]
+    fn micro_auto_segment_is_absorbed_by_next_transition() {
+        let conn = test_conn();
+        let t0 = Utc::now();
+        transition_segment(&conn, Some(1), None, Source::Auto, t0, None, None).unwrap();
+        transition_segment(
+            &conn,
+            Some(2),
+            None,
+            Source::Auto,
+            t0 + Duration::seconds(30),
+            None,
+            None,
+        )
+        .unwrap();
+
+        let rows = segments(&conn);
+        assert_eq!(rows.len(), 1, "glance segment should be deleted");
+        let (project, started_at, ended_at, _) = &rows[0];
+        assert_eq!(*project, Some(2));
+        assert_eq!(*started_at, t0.to_rfc3339(), "new segment inherits the absorbed span");
+        assert!(ended_at.is_none());
+    }
+
+    #[test]
+    fn chained_glances_collapse_into_final_segment() {
+        let conn = test_conn();
+        let t0 = Utc::now();
+        transition_segment(&conn, Some(1), None, Source::Auto, t0, None, None).unwrap();
+        transition_segment(&conn, Some(2), None, Source::Auto, t0 + Duration::seconds(10), None, None).unwrap();
+        transition_segment(&conn, Some(3), None, Source::Auto, t0 + Duration::seconds(25), None, None).unwrap();
+
+        let rows = segments(&conn);
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].0, Some(3));
+        assert_eq!(rows[0].1, t0.to_rfc3339());
+    }
+
+    #[test]
+    fn auto_segment_at_least_a_minute_old_is_kept() {
+        let conn = test_conn();
+        let t0 = Utc::now();
+        transition_segment(&conn, Some(1), None, Source::Auto, t0, None, None).unwrap();
+        transition_segment(
+            &conn,
+            Some(2),
+            None,
+            Source::Auto,
+            t0 + Duration::seconds(60),
+            None,
+            None,
+        )
+        .unwrap();
+
+        let rows = segments(&conn);
+        assert_eq!(rows.len(), 2, "a full minute of work is not a glance");
+        assert_eq!(rows[0].0, Some(1));
+        assert_eq!(rows[0].2, Some((t0 + Duration::seconds(60)).to_rfc3339()));
+    }
+
+    #[test]
+    fn manual_segment_is_never_absorbed() {
+        let conn = test_conn();
+        let t0 = Utc::now();
+        transition_segment(&conn, Some(1), None, Source::Manual, t0, None, None).unwrap();
+        transition_segment(
+            &conn,
+            Some(2),
+            None,
+            Source::Auto,
+            t0 + Duration::seconds(5),
+            None,
+            None,
+        )
+        .unwrap();
+
+        let rows = segments(&conn);
+        assert_eq!(rows.len(), 2, "an explicit user choice stays recorded however brief");
+        assert_eq!(rows[0].0, Some(1));
+        assert_eq!(rows[0].3, "manual");
+    }
 }

@@ -17,16 +17,16 @@ pub use win::is_ctrl_pressed;
 
 const POLL_INTERVAL: Duration = Duration::from_secs(2);
 /// Consecutive polls a newly-detected project/activity must hold before it
-/// is proposed to the user — filters out a same-tick flicker (e.g. a
-/// notification stealing focus for a fraction of a second) without
-/// meaningfully delaying real switches. At POLL_INTERVAL=2s this commits
-/// 2-4s after the switch first appears. Deliberately short: a user who
-/// hops between projects for 5-10s at a time needs those short stretches
-/// counted at all, which a longer debounce (previously 12s) simply
-/// dropped — the daily timeline view is what now lets them review/spot a
-/// genuine glance after the fact, instead of the debounce trying to
-/// prevent it from ever being recorded.
-const DEBOUNCE_HITS: u8 = 2;
+/// is committed. At POLL_INTERVAL=2s this commits 4-6s after the switch
+/// first appears — long enough that flipping through open windows looking
+/// for the right one (customers reported landing on the wrong project for
+/// ~3s, realizing, and moving on — each such glance became a recorded
+/// segment) never registers, short enough that a real switch still commits
+/// almost immediately, and with `Candidate::first_seen` backdating none of
+/// the wait is lost time. Was 2 (2-4s), which let those glances through;
+/// glances that outlast even this are caught by the second line of defense,
+/// micro-segment absorption in `db::transition_segment`.
+const DEBOUNCE_HITS: u8 = 3;
 /// No keyboard/mouse input for this long stops crediting time to whatever
 /// project/activity is current — see the idle handling at the top of
 /// `tick`. Deliberately keyboard-inclusive (not mouse-only): typing counts
