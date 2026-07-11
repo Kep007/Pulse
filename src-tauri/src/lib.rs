@@ -215,6 +215,7 @@ pub fn run() {
             commands::projects::archive_project,
             commands::projects::reorder_projects,
             commands::projects::set_project_aliases,
+            commands::projects::set_project_colors,
         ])
         .setup(|app| {
             log::info!("Pulse {} starting up", app.package_info().version);

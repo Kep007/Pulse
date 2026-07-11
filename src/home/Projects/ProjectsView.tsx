@@ -1,12 +1,19 @@
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { KeyboardEvent, PointerEvent } from "react";
 import { ConfirmDialog } from "../../components/ConfirmDialog";
+import {
+  pickNewProjectColor,
+  projectColorMap,
+  PROJECT_COLOR_POOL,
+  randomProjectColors,
+} from "../../lib/projectColors";
 import {
   archiveProject,
   createProject,
   listProjects,
   reorderProjects,
   setProjectAliases,
+  setProjectColors,
   updateProject,
 } from "../../lib/tauri";
 import type { ProjectDto } from "../../lib/types";
@@ -18,6 +25,12 @@ function parseAliasesText(text: string) {
     .split(",")
     .map((alias) => alias.trim())
     .filter((alias) => alias.length > 0);
+}
+
+// "2a78D6" / "#2a78d6" → "#2a78d6"; anything not a 6-digit hex → null.
+function normalizeHex(text: string): string | null {
+  const match = /^#?([0-9a-fA-F]{6})$/.exec(text.trim());
+  return match ? `#${match[1].toLowerCase()}` : null;
 }
 
 const REFLOW_TRANSITION = "transform 180ms ease";
@@ -37,6 +50,10 @@ export function ProjectsView() {
   const [editAliasesText, setEditAliasesText] = useState("");
   const [archiveTarget, setArchiveTarget] = useState<ProjectDto | null>(null);
   const [draggingId, setDraggingId] = useState<number | null>(null);
+  // Which project's color-picker popover is open, plus the free-form hex
+  // field's draft text (kept as typed; validated only on commit).
+  const [colorPickerFor, setColorPickerFor] = useState<number | null>(null);
+  const [hexDraft, setHexDraft] = useState("");
   const rowRefs = useRef(new Map<number, HTMLTableRowElement>());
   const projectsRef = useRef<ProjectDto[]>([]);
   const dragRef = useRef<DragState | null>(null);
@@ -57,14 +74,48 @@ export function ProjectsView() {
     setProjects(await listProjects());
   }
 
+  // Swatch colors shown in the table — the exact same resolution every chart
+  // uses (stored color, else stable pool fallback), so what the user sees
+  // here always matches the timeline/breakdown colors.
+  const colorById = useMemo(() => projectColorMap(projects), [projects]);
+
   async function handleAdd() {
     const name = newName.trim();
     if (!name) {
       return;
     }
-    await createProject(name, null);
+    // Assign a real color at birth (least-used pool color) instead of null,
+    // so a new project is immediately distinct in every chart.
+    await createProject(name, pickNewProjectColor(projects.map((project) => project.color)));
     setNewName("");
     await refresh();
+  }
+
+  async function randomizeColors() {
+    if (projects.length === 0) {
+      return;
+    }
+    const colors = randomProjectColors(projects.length);
+    await setProjectColors(projects.map((project, index) => ({ id: project.id, color: colors[index] })));
+    await refresh();
+  }
+
+  function openColorPicker(project: ProjectDto) {
+    setColorPickerFor((current) => (current === project.id ? null : project.id));
+    setHexDraft(colorById.get(project.id) ?? "");
+  }
+
+  async function applyColor(projectId: number, color: string) {
+    setColorPickerFor(null);
+    await setProjectColors([{ id: projectId, color }]);
+    await refresh();
+  }
+
+  function commitHexDraft(projectId: number) {
+    const color = normalizeHex(hexDraft);
+    if (color) {
+      void applyColor(projectId, color);
+    }
   }
 
   function startEdit(project: ProjectDto) {
@@ -81,7 +132,9 @@ export function ProjectsView() {
     if (!name) {
       return;
     }
-    await updateProject(editingId, name, null);
+    // Renaming must not wipe the stored color — pass the current one through.
+    const currentColor = projects.find((project) => project.id === editingId)?.color ?? null;
+    await updateProject(editingId, name, currentColor);
     await setProjectAliases(editingId, parseAliasesText(editAliasesText));
     setEditingId(null);
     await refresh();
@@ -236,7 +289,17 @@ export function ProjectsView() {
   return (
     <div className={draggingId !== null ? "projects-view dragging-active" : "projects-view"}>
       <section className="dashboard-card">
-        <h2>Progetti</h2>
+        <div className="projects-header">
+          <h2>Progetti</h2>
+          <button
+            type="button"
+            className="randomize-colors"
+            title="Riassegna casualmente i colori dei progetti (palette a contrasto verificato)"
+            onClick={() => void randomizeColors()}
+          >
+            🎲 Colori casuali
+          </button>
+        </div>
         <table className="projects-table">
           <thead>
             <tr>
@@ -276,7 +339,71 @@ export function ProjectsView() {
                       onKeyDown={handleEditKeyDown}
                     />
                   ) : (
-                    <span>{project.name}</span>
+                    <span className="project-name-with-color">
+                      <button
+                        type="button"
+                        className="project-color-swatch"
+                        style={{ background: colorById.get(project.id) }}
+                        title="Cambia colore"
+                        aria-label={`Cambia colore di ${project.name}`}
+                        onClick={() => openColorPicker(project)}
+                      />
+                      {project.name}
+                      {colorPickerFor === project.id && (
+                        <>
+                          <div
+                            className="color-picker-backdrop"
+                            onClick={() => setColorPickerFor(null)}
+                          />
+                          <div className="color-picker-pop" role="dialog" aria-label="Scegli colore">
+                            <div className="color-picker-grid">
+                              {PROJECT_COLOR_POOL.map((color) => (
+                                <button
+                                  key={color}
+                                  type="button"
+                                  className={
+                                    color === (colorById.get(project.id) ?? "").toLowerCase()
+                                      ? "color-cell active"
+                                      : "color-cell"
+                                  }
+                                  style={{ background: color }}
+                                  title={color}
+                                  onClick={() => void applyColor(project.id, color)}
+                                />
+                              ))}
+                            </div>
+                            <div className="color-picker-custom">
+                              <input
+                                type="color"
+                                value={normalizeHex(hexDraft) ?? colorById.get(project.id) ?? "#2a78d6"}
+                                onChange={(event) => setHexDraft(event.target.value)}
+                                title="Selettore colore"
+                              />
+                              <input
+                                type="text"
+                                value={hexDraft}
+                                placeholder="#RRGGBB"
+                                onChange={(event) => setHexDraft(event.target.value)}
+                                onKeyDown={(event) => {
+                                  if (event.key === "Enter") {
+                                    commitHexDraft(project.id);
+                                  } else if (event.key === "Escape") {
+                                    setColorPickerFor(null);
+                                  }
+                                }}
+                              />
+                              <button
+                                type="button"
+                                disabled={normalizeHex(hexDraft) === null}
+                                onClick={() => commitHexDraft(project.id)}
+                              >
+                                OK
+                              </button>
+                            </div>
+                          </div>
+                        </>
+                      )}
+                    </span>
                   )}
                 </td>
                 <td className="project-alias-cell">

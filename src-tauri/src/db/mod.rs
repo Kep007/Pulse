@@ -268,6 +268,20 @@ pub fn archive_project(conn: &Connection, id: i64, at: DateTime<Utc>) -> rusqlit
     Ok(())
 }
 
+/// Batch color update in one transaction — the "randomize colors" button
+/// recolors every project at once, and a single write path means a single
+/// catalog-changed event instead of one refresh storm per project.
+pub fn set_project_colors(conn: &Connection, colors: &[(i64, String)]) -> rusqlite::Result<()> {
+    let tx = conn.unchecked_transaction()?;
+    for (project_id, color) in colors {
+        tx.execute(
+            "UPDATE projects SET color = ?1 WHERE id = ?2",
+            rusqlite::params![color, project_id],
+        )?;
+    }
+    tx.commit()
+}
+
 pub fn reorder_projects(conn: &Connection, ordered_ids: &[i64]) -> rusqlite::Result<()> {
     let tx = conn.unchecked_transaction()?;
     for (index, id) in ordered_ids.iter().enumerate() {

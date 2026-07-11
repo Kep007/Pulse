@@ -58,6 +58,29 @@ pub fn archive_project(app: AppHandle, state: State<AppState>, id: i64) -> Resul
     Ok(())
 }
 
+#[derive(serde::Deserialize)]
+pub struct ProjectColor {
+    pub id: i64,
+    pub color: String,
+}
+
+/// Recolors any number of projects in one transaction + one catalog-changed
+/// event (colors don't affect matching, so no matcher refresh needed).
+#[tauri::command]
+pub fn set_project_colors(
+    app: AppHandle,
+    state: State<AppState>,
+    colors: Vec<ProjectColor>,
+) -> Result<(), String> {
+    {
+        let conn = state.db.lock().unwrap();
+        let pairs: Vec<(i64, String)> = colors.into_iter().map(|c| (c.id, c.color)).collect();
+        db::set_project_colors(&conn, &pairs).map_err(|err| err.to_string())?;
+    }
+    let _ = app.emit(CATALOG_CHANGED_EVENT, ());
+    Ok(())
+}
+
 #[tauri::command]
 pub fn reorder_projects(
     app: AppHandle,

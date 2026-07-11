@@ -3,6 +3,7 @@ import { IconChevron } from "../../components/icons";
 import { getActivityDetectionEnabled, getDailySummary, getMonthlySummary, listActivityTypes } from "../../lib/tauri";
 import type { ActivityTypeDto, BreakdownMetric, DayBucket, MonthBucket } from "../../lib/types";
 import { useProjects } from "../../lib/useProjects";
+import { projectColorMap } from "../../lib/projectColors";
 import { assignCategoricalColors } from "./categoricalPalette";
 import { DailyTimeline, formatDayLabel, isToday } from "./DailyTimeline";
 import { DashboardCardControls } from "./DashboardCardControls";
@@ -78,11 +79,10 @@ export function DashboardView() {
 
   // Color follows the entity (its catalog id), never its current rank in a
   // sorted-by-value list — otherwise the same project's slice would repaint
-  // every time another project overtakes it.
-  const projectColors = useMemo(
-    () => assignCategoricalColors(projects.map((project) => project.id)),
-    [projects],
-  );
+  // every time another project overtakes it. Projects use their stored color
+  // (set/randomized in the Progetti tab) so every chart matches the swatch
+  // shown there; activities keep the fixed categorical palette.
+  const projectColors = useMemo(() => projectColorMap(projects), [projects]);
   const activityColors = useMemo(
     () => assignCategoricalColors(activityTypes.map((activityType) => activityType.id)),
     [activityTypes],

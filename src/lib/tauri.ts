@@ -115,3 +115,7 @@ export function reorderProjects(orderedIds: number[]) {
 export function setProjectAliases(projectId: number, aliases: string[]) {
   return invoke<void>("set_project_aliases", { projectId, aliases });
 }
+
+export function setProjectColors(colors: { id: number; color: string }[]) {
+  return invoke<void>("set_project_colors", { colors });
+}

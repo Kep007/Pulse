@@ -2,7 +2,8 @@ import { useEffect, useMemo, useState } from "react";
 import { formatHoursMinutes } from "../../lib/format";
 import { getDayDetail } from "../../lib/tauri";
 import type { ProjectDto, SegmentDto } from "../../lib/types";
-import { assignCategoricalColors, OTHER_COLOR } from "./categoricalPalette";
+import { projectColorMap } from "../../lib/projectColors";
+import { OTHER_COLOR } from "./categoricalPalette";
 import { TooltipTrigger } from "./TooltipTrigger";
 
 const DAY_MINUTES = 24 * 60;
@@ -100,10 +101,10 @@ export function DailyTimeline({ date, projects }: DailyTimelineProps) {
     };
   }, [date]);
 
-  const projectColors = useMemo(
-    () => assignCategoricalColors(projects.map((project) => project.id)),
-    [projects],
-  );
+  // Same stored-color-first resolution as every other chart and the Progetti
+  // tab's swatches (see projectColorMap) — the timeline recolors live when
+  // the user randomizes colors, via the catalog-changed refetch upstream.
+  const projectColors = useMemo(() => projectColorMap(projects), [projects]);
 
   // Same project can appear in several blocks across the day (switch away,
   // switch back) — both tooltips' "totale in giornata" sum every one of

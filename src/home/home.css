@@ -973,6 +973,152 @@
   gap: 16px;
 }
 
+.projects-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 16px;
+}
+
+/* The card's generic h2 rule carries its own bottom margin for the plain
+   title case — inside this flex row that margin would just misalign the
+   title against the button; the row's margin-bottom above owns the gap. */
+.projects-header h2 {
+  margin: 0;
+}
+
+/* "Colori casuali": reshuffles which pool color each project wears (the
+   pool itself is fixed and contrast/CVD-validated — see projectColors.ts). */
+.randomize-colors {
+  flex-shrink: 0;
+  border: 0;
+  border-radius: 6px;
+  padding: 7px 14px;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  background: #eef2f7;
+  color: #172033;
+}
+
+.randomize-colors:hover {
+  background: #e2e8f0;
+}
+
+.project-name-with-color {
+  /* Anchor for .color-picker-pop's absolute positioning. */
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* The same color this project wears in every chart (single source of truth:
+   projectColorMap) — shown here so the Progetti tab doubles as the legend.
+   A button: clicking it opens the per-project color picker popover. */
+.project-color-swatch {
+  flex-shrink: 0;
+  width: 12px;
+  height: 12px;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.project-color-swatch:hover {
+  outline: 2px solid #d0d5dd;
+  outline-offset: 1px;
+}
+
+/* Invisible click-catcher behind the picker: any click outside closes it. */
+.color-picker-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 29;
+  background: transparent;
+}
+
+.color-picker-pop {
+  position: absolute;
+  top: 22px;
+  left: 0;
+  z-index: 30;
+  width: 196px;
+  padding: 10px;
+  border-radius: 10px;
+  background: #ffffff;
+  box-shadow: 0 8px 24px rgba(17, 24, 39, 0.18);
+}
+
+.color-picker-grid {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 6px;
+}
+
+.color-picker-grid .color-cell {
+  width: 100%;
+  aspect-ratio: 1;
+  padding: 0;
+  border: 0;
+  border-radius: 5px;
+  cursor: pointer;
+}
+
+.color-picker-grid .color-cell.active {
+  outline: 2px solid #172033;
+  outline-offset: 1px;
+}
+
+.color-picker-custom {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid #eef2f7;
+}
+
+.color-picker-custom input[type="color"] {
+  flex-shrink: 0;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid #d0d5dd;
+  border-radius: 6px;
+  background: transparent;
+  cursor: pointer;
+}
+
+.color-picker-custom input[type="text"] {
+  min-width: 0;
+  flex: 1;
+  border: 1px solid #d0d5dd;
+  border-radius: 6px;
+  padding: 5px 7px;
+  font: inherit;
+  font-size: 12px;
+}
+
+.color-picker-custom button {
+  flex-shrink: 0;
+  border: 0;
+  border-radius: 6px;
+  padding: 6px 10px;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  background: #2563eb;
+  color: #ffffff;
+}
+
+.color-picker-custom button:hover {
+  background: #1d4ed8;
+}
+
 .projects-table {
   width: 100%;
   border-collapse: collapse;
