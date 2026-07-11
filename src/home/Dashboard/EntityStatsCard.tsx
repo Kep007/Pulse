@@ -48,7 +48,7 @@ export function EntityStatsCard({
   return (
     <div className="stat-tile-row">
       <div className="stat-tile">
-        <span className="stat-tile-label">Media al giorno attivo</span>
+        <span className="stat-tile-label">Media giornaliera</span>
         <span className="stat-tile-value">{formatHoursMinutes(stats.avgSecondsPerActiveDay)}</span>
       </div>
 
@@ -70,11 +70,11 @@ export function EntityStatsCard({
       </div>
 
       <div className="stat-tile">
-        <span className="stat-tile-label">Mese migliore</span>
+        <span className="stat-tile-label">Mese più impegnativo</span>
         {bestMonth ? (
           <TooltipTrigger
             className="stat-tile-value stat-tile-value-hoverable"
-            ariaLabel={`Mese migliore ${formatMonthIt(bestMonth.month)}: vedi il dettaglio giornaliero`}
+            ariaLabel={`Mese più impegnativo ${formatMonthIt(bestMonth.month)}: vedi il dettaglio giornaliero`}
             renderTooltip={() => (
               <BreakdownTooltip
                 title={formatMonthIt(bestMonth.month)}
@@ -91,11 +91,11 @@ export function EntityStatsCard({
       </div>
 
       <div className="stat-tile">
-        <span className="stat-tile-label">Giorno migliore</span>
+        <span className="stat-tile-label">Giorno più impegnativo</span>
         {bestWeekday ? (
           <TooltipTrigger
             className="stat-tile-value stat-tile-value-hoverable"
-            ariaLabel={`Giorno migliore ${WEEKDAY_LABELS_IT[bestWeekday.weekday]}: vedi lo storico completo`}
+            ariaLabel={`Giorno più impegnativo ${WEEKDAY_LABELS_IT[bestWeekday.weekday]}: vedi lo storico completo`}
             renderTooltip={() => (
               <BreakdownTooltip
                 title={WEEKDAY_LABELS_IT[bestWeekday.weekday]}

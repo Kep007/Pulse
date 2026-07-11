@@ -107,7 +107,7 @@ export function DashboardView() {
         <div className="dashboard-card-header">
           <DashboardCardTitle
             title="Riepilogo"
-            info="Statistiche calcolate su tutto lo storico registrato per il progetto o l'attività selezionata, non solo sul periodo mostrato negli altri grafici: media di tempo nei soli giorni in cui hai lavorato su questa voce, tempo totale, il mese e il giorno della settimana in cui vi hai dedicato più tempo in assoluto. Passa il mouse su tempo totale, mese e giorno migliore per vederne il dettaglio."
+            info="Statistiche calcolate su tutto lo storico registrato per il progetto o l'attività selezionata, non solo sul periodo mostrato negli altri grafici: media di tempo nei soli giorni in cui hai lavorato su questa voce, tempo totale, il mese e il giorno della settimana in cui vi hai dedicato più tempo in assoluto. Passa il mouse su tempo totale, mese e giorno più impegnativo per vederne il dettaglio."
           />
           <DashboardCardControls
             metric={statsMetric}

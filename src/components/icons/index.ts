@@ -10,4 +10,5 @@ export { IconMinimize } from "./IconMinimize";
 export { IconChevron } from "./IconChevron";
 export { IconCheck } from "./IconCheck";
 export { IconInfo } from "./IconInfo";
+export { IconPdf } from "./IconPdf";
 export type { IconProps } from "./types";

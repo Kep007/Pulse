@@ -119,3 +119,7 @@ export function setProjectAliases(projectId: number, aliases: string[]) {
 export function setProjectColors(colors: { id: number; color: string }[]) {
   return invoke<void>("set_project_colors", { colors });
 }
+
+export function saveReportPdf(path: string, contents: number[]) {
+  return invoke<void>("save_report_pdf", { path, contents });
+}

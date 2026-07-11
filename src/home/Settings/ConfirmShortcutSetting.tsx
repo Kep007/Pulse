@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import type { KeyboardEvent, MouseEvent } from "react";
+import { formatAccelerator } from "../../lib/shortcutFormat";
 import { getConfirmShortcut, setConfirmShortcut } from "../../lib/tauri";
 
 const IGNORED_CODES = new Set([
@@ -12,74 +13,6 @@ const IGNORED_CODES = new Set([
   "MetaLeft",
   "MetaRight",
 ]);
-
-const CODE_LABELS: Record<string, string> = {
-  Space: "Spazio",
-  Enter: "Invio",
-  Escape: "Esc",
-  Tab: "Tab",
-  Backspace: "Backspace",
-  Delete: "Canc",
-  Insert: "Ins",
-  Home: "Home",
-  End: "Fine",
-  PageUp: "Pag↑",
-  PageDown: "Pag↓",
-  ArrowUp: "↑",
-  ArrowDown: "↓",
-  ArrowLeft: "←",
-  ArrowRight: "→",
-  CapsLock: "BlocMaiusc",
-  NumLock: "BlocNum",
-  ScrollLock: "BlocScorr",
-  Comma: ",",
-  Period: ".",
-  Semicolon: ";",
-  Quote: "'",
-  Slash: "/",
-  Backslash: "\\",
-  Minus: "-",
-  Equal: "=",
-  BracketLeft: "[",
-  BracketRight: "]",
-  Backquote: "`",
-};
-
-const MODIFIER_LABELS: Record<string, string> = {
-  CommandOrControl: "Ctrl",
-  Shift: "Shift",
-  Alt: "Alt",
-};
-
-function labelForCode(code: string): string {
-  if (CODE_LABELS[code]) {
-    return CODE_LABELS[code];
-  }
-  if (code.startsWith("Key")) {
-    return code.slice(3);
-  }
-  if (code.startsWith("Digit")) {
-    return code.slice(5);
-  }
-  if (code.startsWith("Numpad")) {
-    return `Num ${code.slice(6)}`;
-  }
-  return code;
-}
-
-// Turns the stored accelerator ("CommandOrControl+Shift+KeyY") or a mouse
-// binding ("Mouse4") into what the user actually recognizes on their
-// keyboard/mouse — the stored form has to match what the Rust side's parser
-// expects (see `matcher.rs`-adjacent shortcut parsing), not what's readable.
-function formatAccelerator(value: string): string {
-  if (value === "Mouse4" || value === "Mouse5") {
-    return value.replace("Mouse", "Mouse ");
-  }
-  return value
-    .split("+")
-    .map((token) => MODIFIER_LABELS[token] ?? labelForCode(token))
-    .join(" + ");
-}
 
 type HeldModifiers = { ctrl: boolean; shift: boolean; alt: boolean };
 const NO_MODIFIERS: HeldModifiers = { ctrl: false, shift: false, alt: false };

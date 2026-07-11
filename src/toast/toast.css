@@ -1,17 +1,44 @@
 .toast-window {
-  width: 100%;
-  height: 100%;
   display: flex;
+  /* The window is sized to the scaled card (ToastWindow.tsx), so the
+     unscaled layout shrinks from its top-left corner to fill it exactly. */
+  transform-origin: top left;
   -webkit-app-region: no-drag;
+}
+
+/* Off-screen unscaled clone rendered only to measure the card's natural
+   size (ToastWindow.tsx) — the window is then sized to exactly that, which
+   is what makes the popup adapt to long project names. */
+.toast-measure {
+  position: absolute;
+  left: 0;
+  top: 0;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.toast-measure .toast-card {
+  width: max-content;
+}
+
+.toast-measure .toast-card.confirm {
+  min-width: 264px;
+  max-width: 380px;
+}
+
+.toast-measure .toast-card.info {
+  min-width: 220px;
+  max-width: 320px;
 }
 
 .toast-card {
   flex: 1;
   display: flex;
-  flex-direction: column;
-  justify-content: center;
-  gap: 8px;
-  padding: 10px 14px;
+  align-items: center;
+  gap: 14px;
+  /* Equal on all four sides — the window hugs the card's content, so this
+     padding is the only whitespace on every edge. */
+  padding: 12px;
   border-radius: 10px;
   box-shadow: 0 10px 26px rgba(17, 24, 39, 0.28);
   font-size: 13px;
@@ -26,23 +53,79 @@
 .toast-card.confirm {
   background: #fab219;
   color: #172033;
+  justify-content: space-between;
+  /* Text (and the Sì button) start from the card's top-left corner instead
+     of floating vertically centered. */
+  align-items: flex-start;
 }
 
-.toast-card.confirm p {
+.toast-card p {
   margin: 0;
-  line-height: 1.4;
+  line-height: 1.35;
+}
+
+/* styles.css (shared by every window) styles bare `strong` for the widget's
+   project name — 16px, dark color, nowrap/ellipsis. Inside the toast the
+   bold marks must stay the same size as their own line, so undo all of it:
+   bold alone carries the emphasis here. */
+.toast-card strong {
+  font-size: inherit;
+  color: inherit;
+  line-height: inherit;
+  font-weight: 700;
+  white-space: normal;
+  overflow: visible;
+  flex-shrink: initial;
+}
+
+.toast-title {
+  font-size: 15px;
+}
+
+.toast-hint {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.toast-hint svg {
+  width: 13px;
+  height: 13px;
+  flex-shrink: 0;
+  fill: currentColor;
+}
+
+.toast-text {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.toast-text p {
+  overflow-wrap: anywhere;
+}
+
+/* Both lines keep a uniform size within themselves — bold alone marks the
+   project name on the first line and the key combo on the second; the
+   hierarchy between the two lines comes from the hint being smaller. */
+.toast-hint {
+  font-size: 11px;
+  opacity: 0.78;
+  white-space: nowrap;
 }
 
 .toast-actions {
   display: flex;
-  justify-content: flex-end;
-  gap: 8px;
+  flex-direction: column;
+  gap: 6px;
+  flex-shrink: 0;
 }
 
 .toast-actions button {
   border: 0;
   border-radius: 7px;
-  padding: 6px 14px;
+  padding: 5px 16px;
   font: inherit;
   font-weight: 600;
   cursor: pointer;

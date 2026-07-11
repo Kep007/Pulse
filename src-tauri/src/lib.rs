@@ -172,6 +172,7 @@ pub fn run() {
             show_widget(app);
         }))
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_autostart::init(
             MacosLauncher::LaunchAgent,
             None,
@@ -216,6 +217,7 @@ pub fn run() {
             commands::projects::reorder_projects,
             commands::projects::set_project_aliases,
             commands::projects::set_project_colors,
+            commands::export::save_report_pdf,
         ])
         .setup(|app| {
             log::info!("Pulse {} starting up", app.package_info().version);
