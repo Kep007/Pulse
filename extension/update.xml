@@ -1,0 +1,14 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<!-- Manifest di aggiornamento (formato Omaha) per Pulse Companion.
+     Ospitato come asset della release GitHub fissa "extension-updates";
+     Chrome/Edge lo interrogano per sapere se esiste una versione piu' nuova
+     del .crx. Per pubblicare una nuova versione dell'estensione: aggiornare
+     "version" in extension/manifest.json, ri-impacchettare il .crx con la
+     chiave ~/.tauri/pulse-extension.pem, aggiornare version/codebase qui
+     sotto e ricaricare entrambi gli asset sulla release extension-updates
+     (vedi checklist in TODO.md). Non serve una nuova release di Pulse. -->
+<gupdate xmlns='http://www.google.com/update2/response' protocol='2.0'>
+  <app appid='bbbcjbccdgokheffchfkgdllkneahgnd'>
+    <updatecheck codebase='https://github.com/Kep007/Pulse/releases/download/extension-updates/pulse-companion-1.0.0.crx' version='1.0.0' />
+  </app>
+</gupdate>

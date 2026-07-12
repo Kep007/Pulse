@@ -108,13 +108,13 @@ pub struct AppState {
 }
 
 impl AppState {
-    pub fn new(conn: Connection) -> rusqlite::Result<Self> {
+    pub fn new(conn: Connection, company_terms: &[String]) -> rusqlite::Result<Self> {
         let projects = db::project_match_terms(&conn)?;
         let rules = db::activity_rules(&conn)?;
 
         Ok(AppState {
             db: Mutex::new(conn),
-            matcher: Mutex::new(Matcher::build(&projects, &rules)),
+            matcher: Mutex::new(Matcher::build(&projects, &rules, company_terms)),
             detector: Mutex::new(DetectorState::initial(Utc::now())),
             activity_detection_enabled: Mutex::new(false),
             browser_signal: Mutex::new(None),
@@ -424,8 +424,9 @@ pub fn refresh_matcher(app: &AppHandle) -> rusqlite::Result<()> {
         let conn = state.db.lock().unwrap();
         (db::project_match_terms(&conn)?, db::activity_rules(&conn)?)
     };
+    let company = crate::commands::settings::company_terms(app);
     let mut matcher = state.matcher.lock().unwrap();
-    *matcher = Matcher::build(&projects, &rules);
+    *matcher = Matcher::build(&projects, &rules, &company);
     Ok(())
 }
 

@@ -62,6 +62,16 @@ export function resetAllData() {
   return invoke<TrackingState>("reset_all_data");
 }
 
+export type CompanyDto = { name: string; aliases: string[] };
+
+export function getCompany() {
+  return invoke<CompanyDto>("get_company");
+}
+
+export function setCompany(name: string, aliases: string[]) {
+  return invoke<CompanyDto>("set_company", { name, aliases });
+}
+
 export function getDailySummary(from: string, to: string) {
   return invoke<DayBucket[]>("get_daily_summary", { from, to });
 }

@@ -4,13 +4,13 @@ use serde::Deserialize;
 use std::time::{Duration, Instant};
 use tauri::{AppHandle, Manager};
 
-/// Fixed once the companion extension's signing keypair exists (see
-/// `extension/manifest.json`'s `key` field) — Chrome and Edge both derive
-/// the extension's ID from that same public key, which is what lets this be
-/// a hardcoded constant instead of something negotiated at runtime. Until
-/// then this placeholder never matches a real `Origin` header, so the
-/// server accepts no signals — safe by construction, not just by omission.
-const ALLOWED_ORIGIN: &str = "chrome-extension://REPLACE_WITH_GENERATED_EXTENSION_ID";
+/// Chrome and Edge both derive the extension's ID from the public key in
+/// `extension/manifest.json`'s `key` field, which is what lets this be a
+/// hardcoded constant instead of something negotiated at runtime. The
+/// private half of that keypair lives in `~/.tauri/pulse-extension.pem`
+/// (back it up like the updater key): regenerating it changes this ID and
+/// breaks both this allowlist and any install-by-policy entry.
+const ALLOWED_ORIGIN: &str = "chrome-extension://bbbcjbccdgokheffchfkgdllkneahgnd";
 
 /// Arbitrary unregistered/unassigned port. Fixed rather than negotiated
 /// because the extension has no other way to discover it — no handshake
@@ -20,12 +20,17 @@ const PORT: u16 = 47771;
 /// A user sitting on the same unchanged WhatsApp chat for minutes is exactly
 /// the case where the last-reported signal is still 100% correct, but a
 /// purely change-event-driven extension would never re-send it — so the
-/// extension also sends a heartbeat (~3s, see `extension/background.js`)
-/// even when nothing changed. This threshold (2x the heartbeat, plus
-/// margin for service-worker wake latency / poll jitter) is what turns
-/// `received_at` into a liveness check ("is the extension still reporting")
-/// rather than a "did anything change" check.
-const STALE_AFTER: Duration = Duration::from_secs(6);
+/// extension also heartbeats even when nothing changed. The slowest
+/// heartbeat it can guarantee is 30s: MV3's `chrome.alarms` silently clamps
+/// anything shorter, and the service worker may be suspended between
+/// alarms (WhatsApp pages heartbeat every 3s on their own via the content
+/// script, but generic pages — the Pinterest case — only have the alarm).
+/// Two missed alarms plus margin, so a live extension never goes "stale"
+/// but a dead/uninstalled one stops being trusted within about a minute.
+/// Cheap staleness is fine here: tab *changes* are event-driven and land
+/// immediately — this threshold only decides how long the last report
+/// survives when nothing is arriving at all.
+const STALE_AFTER: Duration = Duration::from_secs(65);
 
 /// The active browser tab's URL/title, plus (for WhatsApp Web specifically)
 /// the open chat's contact/group name scraped from the DOM — see

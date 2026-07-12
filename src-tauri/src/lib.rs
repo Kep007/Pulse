@@ -225,6 +225,8 @@ pub fn run() {
             commands::settings::set_confirm_shortcut,
             commands::settings::get_activity_detection_enabled,
             commands::settings::set_activity_detection_enabled,
+            commands::settings::get_company,
+            commands::settings::set_company,
             commands::stats::get_daily_summary,
             commands::stats::get_monthly_summary,
             commands::stats::get_day_detail,
@@ -248,7 +250,11 @@ pub fn run() {
             }
             migrate_legacy_data_dir(app.handle());
             let conn = db::open(app.handle())?;
-            let state = AppState::new(conn)?;
+            // Company terms feed the matcher's priority rule (see
+            // Matcher::match_project) and live in the settings store, so
+            // they're read before the state is built.
+            let company_terms = commands::settings::company_terms(app.handle());
+            let state = AppState::new(conn, &company_terms)?;
             app.manage(state);
             detector::spawn_polling(app.handle().clone());
             detector::browser_signal::spawn_server(app.handle().clone());

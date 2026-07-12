@@ -84,3 +84,36 @@ npm run build
 # poi generare latest.json (vedi comandi usati per v0.1.1) e pubblicarlo
 # come GitHub Release insieme ai due installer
 ```
+
+### Estensione companion Chrome/Edge (cartella `extension/`)
+
+L'estensione riporta a Pulse (server locale, porta 47771) l'URL del tab
+attivo e il contatto WhatsApp aperto — vedi
+`src-tauri/src/detector/browser_signal.rs`. ID fisso
+`bbbcjbccdgokheffchfkgdllkneahgnd`, derivato dalla chiave
+**`~/.tauri/pulse-extension.pem`** (sensibile, da backuppare come la chiave
+updater: persa quella, cambia l'ID e si rompono allowlist Origin e policy di
+installazione).
+
+Per pubblicare una NUOVA versione dell'estensione (non serve una release di
+Pulse):
+
+```
+# 1. aggiornare "version" in extension/manifest.json
+# 2. ri-impacchettare il crx con la stessa chiave:
+chrome --pack-extension=extension --pack-extension-key=%USERPROFILE%\.tauri\pulse-extension.pem
+# 3. aggiornare version/codebase in extension/update.xml
+# 4. ricaricare crx + update.xml sugli asset della release fissa
+#    "extension-updates" (marcata PRERELEASE di proposito: releases/latest
+#    deve continuare a puntare alle release dell'app per l'updater!)
+gh release upload extension-updates pulse-companion-X.Y.Z.crx extension/update.xml --clobber
+```
+
+L'installer NSIS (`src-tauri/nsis-hooks.nsh`) registra l'estensione via
+ExtensionInstallForcelist in HKCU e la rimuove alla disinstallazione. Nota:
+su macchine consumer non gestite Chrome/Edge possono ignorare quella policy
+(e limitano comunque l'install silenziosa fuori dagli store) — se lo spike
+lo conferma, il percorso supportato è pubblicare su Chrome Web Store / Edge
+Add-ons e passare alle chiavi "external extensions"
+(`Software\Google\Chrome\Extensions\<id>`), che mostrano un prompt di
+abilitazione una tantum.

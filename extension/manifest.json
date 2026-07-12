@@ -1,0 +1,19 @@
+{
+  "manifest_version": 3,
+  "name": "Pulse Companion",
+  "version": "1.0.0",
+  "description": "Segnala a Pulse (in locale) il sito attivo del browser, per correggere il rilevamento su Pinterest e WhatsApp Web.",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA6QXHGUbz0uojasX5mtRD/OnkjcMYibBevQRDLKkquM11cpwFBpJTnxAOdS/fHfFYQEfy2JKid5XfMf8UQFRobfsb84e/QFSp4NoHZrtmTf0C8MqnT5J+8IiKTe7czNBwKHWHt/D9gEagOEF1YcMzLcpIIWkOzLeX1WggcoHqSmEuJQLLuFlRNmnd6mLLcS7q2hJHqcexiWdnGpfmgQjiHaMRZHEwdUDeMQ7ogJp0e1W/gaw6mEnI6uN72Sl6QjBvbmlzh/0ISd4yPodivbNY/LRlkrsM4fM/310DHPufcfzyL/ntqcbb5/B/esjmdYOBvmL9JVPAcPOsgRZVWZ3c4QIDAQAB",
+  "permissions": ["tabs", "alarms"],
+  "host_permissions": ["http://127.0.0.1:47771/*"],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["*://web.whatsapp.com/*"],
+      "js": ["whatsapp-content.js"],
+      "run_at": "document_idle"
+    }
+  ]
+}

@@ -12,8 +12,88 @@ const ACTIVITY_DETECTION_KEY: &str = "activityDetectionEnabled";
 
 /// Absolute path so `tauri-plugin-store` writes next to the database instead
 /// of its own default (roaming `app_data_dir`) — see `db::data_dir`.
-fn settings_store_path(app: &AppHandle) -> std::path::PathBuf {
+pub(crate) fn settings_store_path(app: &AppHandle) -> std::path::PathBuf {
     crate::db::data_dir(app).join("settings.json")
+}
+
+const COMPANY_NAME_KEY: &str = "companyName";
+const COMPANY_ALIASES_KEY: &str = "companyAliases";
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CompanyDto {
+    pub name: String,
+    pub aliases: Vec<String>,
+}
+
+fn read_company(app: &AppHandle) -> Result<CompanyDto, String> {
+    let store = app.store(settings_store_path(app)).map_err(|err| err.to_string())?;
+    let name = store
+        .get(COMPANY_NAME_KEY)
+        .and_then(|value| value.as_str().map(str::to_string))
+        .unwrap_or_default();
+    let aliases = store
+        .get(COMPANY_ALIASES_KEY)
+        .and_then(|value| {
+            value.as_array().map(|items| {
+                items
+                    .iter()
+                    .filter_map(|item| item.as_str().map(str::to_string))
+                    .collect()
+            })
+        })
+        .unwrap_or_default();
+    Ok(CompanyDto { name, aliases })
+}
+
+/// The company's name + aliases as one flat term list for the matcher —
+/// the matcher doesn't care which is which, only that a match through any
+/// of these must yield to other projects (see Matcher::match_project).
+pub(crate) fn company_terms(app: &AppHandle) -> Vec<String> {
+    let Ok(company) = read_company(app) else {
+        return Vec::new();
+    };
+    let mut terms: Vec<String> = Vec::new();
+    if !company.name.trim().is_empty() {
+        terms.push(company.name.trim().to_string());
+    }
+    terms.extend(
+        company
+            .aliases
+            .iter()
+            .map(|alias| alias.trim().to_string())
+            .filter(|alias| !alias.is_empty()),
+    );
+    terms
+}
+
+#[tauri::command]
+pub fn get_company(app: AppHandle) -> Result<CompanyDto, String> {
+    read_company(&app)
+}
+
+#[tauri::command]
+pub fn set_company(app: AppHandle, name: String, aliases: Vec<String>) -> Result<CompanyDto, String> {
+    let name = name.trim().to_string();
+    let aliases: Vec<String> = aliases
+        .into_iter()
+        .map(|alias| alias.trim().to_string())
+        .filter(|alias| !alias.is_empty())
+        .collect();
+
+    let store = app.store(settings_store_path(&app)).map_err(|err| err.to_string())?;
+    store.set(COMPANY_NAME_KEY, serde_json::Value::String(name.clone()));
+    store.set(
+        COMPANY_ALIASES_KEY,
+        serde_json::Value::Array(aliases.iter().cloned().map(serde_json::Value::String).collect()),
+    );
+    store.save().map_err(|err| err.to_string())?;
+
+    // The company terms live inside the compiled matcher — without this,
+    // the new priority rule would only apply after an app restart.
+    detector::refresh_matcher(&app).map_err(|err| err.to_string())?;
+
+    Ok(CompanyDto { name, aliases })
 }
 
 /// Parses our own accelerator strings ("CommandOrControl+Shift+KeyY") into a

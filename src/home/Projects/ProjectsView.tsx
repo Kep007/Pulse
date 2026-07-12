@@ -10,8 +10,10 @@ import {
 import {
   archiveProject,
   createProject,
+  getCompany,
   listProjects,
   reorderProjects,
+  setCompany,
   setProjectAliases,
   setProjectColors,
   updateProject,
@@ -34,6 +36,68 @@ function normalizeHex(text: string): string | null {
 }
 
 const REFLOW_TRANSITION = "transform 180ms ease";
+
+/// La sezione "La tua azienda" sopra la lista progetti: nome + alias
+/// dell'azienda per cui si lavora. Questi termini compaiono spesso accanto
+/// ai nomi dei veri progetti (gruppi WhatsApp tipo "LT TEAM / OG MOTORS"),
+/// quindi il matcher li usa come de-prioritizzatori: vincono solo quando
+/// nel testo non compare nessun altro progetto.
+function CompanyCard() {
+  const [name, setName] = useState("");
+  const [aliasesText, setAliasesText] = useState("");
+  const [saved, setSaved] = useState(false);
+  const [loaded, setLoaded] = useState(false);
+
+  useEffect(() => {
+    getCompany().then((company) => {
+      setName(company.name);
+      setAliasesText(company.aliases.join(", "));
+      setLoaded(true);
+    });
+  }, []);
+
+  async function save() {
+    await setCompany(name.trim(), parseAliasesText(aliasesText));
+    setSaved(true);
+    window.setTimeout(() => setSaved(false), 2500);
+  }
+
+  return (
+    <section className="dashboard-card company-card">
+      <div className="projects-header">
+        <h2>La tua azienda</h2>
+        {saved && <span className="company-saved-note">Salvato ✓</span>}
+      </div>
+      <p className="company-hint">
+        Il nome e gli alias dell'azienda per cui lavori (es. LT, LT TEAM, LT CONSULTING). Quando in
+        una finestra o chat compaiono sia l'azienda sia un altro progetto (es. "LT TEAM / OG
+        MOTORS"), il tempo va all'altro progetto; se compare solo l'azienda, il tempo va al
+        progetto con quel nome.
+      </p>
+      <div className="company-fields">
+        <input
+          type="text"
+          placeholder="Nome azienda"
+          value={name}
+          disabled={!loaded}
+          onChange={(event) => setName(event.target.value)}
+          onKeyDown={(event) => event.key === "Enter" && void save()}
+        />
+        <input
+          type="text"
+          placeholder="Alias separati da virgola"
+          value={aliasesText}
+          disabled={!loaded}
+          onChange={(event) => setAliasesText(event.target.value)}
+          onKeyDown={(event) => event.key === "Enter" && void save()}
+        />
+        <button type="button" className="primary" disabled={!loaded} onClick={() => void save()}>
+          Salva
+        </button>
+      </div>
+    </section>
+  );
+}
 
 type DragState = {
   id: number;
@@ -288,6 +352,7 @@ export function ProjectsView() {
 
   return (
     <div className={draggingId !== null ? "projects-view dragging-active" : "projects-view"}>
+      <CompanyCard />
       <section className="dashboard-card">
         <div className="projects-header">
           <h2>Progetti</h2>

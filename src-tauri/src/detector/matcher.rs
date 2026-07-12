@@ -50,6 +50,13 @@ fn compile_word_boundary_regex(normalized_term: &str) -> Option<Regex> {
 struct ProjectTerm {
     project_id: i64,
     term_len: usize,
+    /// True when this term (normalized) is also one of the configured
+    /// company terms (the company's own name/aliases, set in the Progetti
+    /// tab). Company terms show up in text that is *about* other projects
+    /// too — WhatsApp group names like "LT TEAM / OG MOTORS" — so a match
+    /// through one of them only wins when no non-company project matched
+    /// the same text (see match_project).
+    is_company: bool,
     pattern: Regex,
 }
 
@@ -77,7 +84,14 @@ impl Matcher {
     pub fn build(
         projects: &[(i64, Vec<String>)],
         activity_rules: &[(i64, String, String, i32)],
+        company_terms: &[String],
     ) -> Self {
+        let company: Vec<String> = company_terms
+            .iter()
+            .map(|term| normalize_text(term))
+            .filter(|term| !term.is_empty())
+            .collect();
+
         let mut project_terms = Vec::new();
         for (project_id, terms) in projects {
             for term in terms {
@@ -89,6 +103,7 @@ impl Matcher {
                     project_terms.push(ProjectTerm {
                         project_id: *project_id,
                         term_len: normalized.len(),
+                        is_company: company.contains(&normalized),
                         pattern,
                     });
                 }
@@ -121,7 +136,13 @@ impl Matcher {
         }
     }
 
-    /// Longest matching alias/name wins when more than one project matches.
+    /// Longest matching alias/name wins when more than one project matches —
+    /// but matches through a *company* term always lose to matches through
+    /// any other term. The company's name inevitably appears next to real
+    /// project names ("LT TEAM / OG MOTORS", "LT CONSULTING / MANNA"): in
+    /// that text the user is working on the other project, not "for the
+    /// company". Only when the company is the *only* thing the text matches
+    /// (e.g. the internal team chat) does the company's own project win.
     pub fn match_project(&self, window_title: &str, process_name: &str) -> Option<i64> {
         let title = normalize_text(window_title);
         let process = normalize_text(process_name);
@@ -130,11 +151,20 @@ impl Matcher {
             return None;
         }
 
-        self.project_terms
+        let matched: Vec<&ProjectTerm> = self
+            .project_terms
             .iter()
             .filter(|term| term.pattern.is_match(&title) || term.pattern.is_match(&process))
-            .max_by_key(|term| term.term_len)
-            .map(|term| term.project_id)
+            .collect();
+
+        let best_of = |company: bool| {
+            matched
+                .iter()
+                .filter(|term| term.is_company == company)
+                .max_by_key(|term| term.term_len)
+                .map(|term| term.project_id)
+        };
+        best_of(false).or_else(|| best_of(true))
     }
 
     /// Highest-priority matching rule wins when more than one applies.
@@ -161,7 +191,57 @@ mod tests {
     use super::*;
 
     fn matcher_with_lt() -> Matcher {
-        Matcher::build(&[(1, vec!["LT".to_string()])], &[])
+        Matcher::build(&[(1, vec!["LT".to_string()])], &[], &[])
+    }
+
+    /// The user's real setup: LT CONSULTING is both a project (id 1) and the
+    /// company they work at; OG (id 2) and MANNA (id 3) are client projects.
+    fn matcher_with_company() -> Matcher {
+        Matcher::build(
+            &[
+                (1, vec!["LT CONSULTING".to_string(), "LT".to_string()]),
+                (2, vec!["OG".to_string(), "OG Motors".to_string()]),
+                (3, vec!["MANNA".to_string()]),
+            ],
+            &[],
+            &[
+                "LT".to_string(),
+                "LT TEAM".to_string(),
+                "LT CONSULTING".to_string(),
+            ],
+        )
+    }
+
+    #[test]
+    fn company_term_loses_to_any_other_project_in_the_same_text() {
+        let matcher = matcher_with_company();
+        // WhatsApp group names that pair the company with a client.
+        assert_eq!(matcher.match_project("LT TEAM/ OG MOTORS", "chrome"), Some(2));
+        // Longest-term alone would pick LT CONSULTING (13 chars) over MANNA
+        // (5): the company rule must override length.
+        assert_eq!(matcher.match_project("LT CONSULTING/ MANNA", "chrome"), Some(3));
+        // Tie on term length (LT vs OG) used to be arbitrary — company loses.
+        assert_eq!(matcher.match_project("LT / OG", "chrome"), Some(2));
+    }
+
+    #[test]
+    fn company_only_text_still_tracks_the_company_project() {
+        let matcher = matcher_with_company();
+        assert_eq!(matcher.match_project("LT TEAM", "chrome"), Some(1));
+        assert_eq!(matcher.match_project("Riunione LT CONSULTING", "chrome"), Some(1));
+    }
+
+    #[test]
+    fn without_company_terms_longest_term_still_wins() {
+        let matcher = Matcher::build(
+            &[
+                (1, vec!["LT CONSULTING".to_string(), "LT".to_string()]),
+                (3, vec!["MANNA".to_string()]),
+            ],
+            &[],
+            &[],
+        );
+        assert_eq!(matcher.match_project("LT CONSULTING/ MANNA", "chrome"), Some(1));
     }
 
     #[test]
