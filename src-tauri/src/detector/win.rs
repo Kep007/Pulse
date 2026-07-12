@@ -1,4 +1,4 @@
-use windows::Win32::Foundation::{CloseHandle, HWND};
+use windows::Win32::Foundation::{CloseHandle, HWND, POINT, RECT};
 use windows::Win32::System::SystemInformation::GetTickCount;
 use windows::Win32::System::Threading::{
     OpenProcess, QueryFullProcessImageNameW, PROCESS_NAME_WIN32, PROCESS_QUERY_LIMITED_INFORMATION,
@@ -7,8 +7,8 @@ use windows::Win32::UI::Input::KeyboardAndMouse::{
     GetAsyncKeyState, GetLastInputInfo, LASTINPUTINFO, VK_CONTROL,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
-    GetForegroundWindow, GetWindowTextW, GetWindowThreadProcessId, SetWindowPos, HWND_TOPMOST,
-    SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE,
+    GetCursorPos, GetForegroundWindow, GetWindowRect, GetWindowTextW, GetWindowThreadProcessId,
+    SetWindowPos, HWND_TOPMOST, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE,
 };
 
 #[derive(Debug, Clone)]
@@ -101,6 +101,26 @@ pub fn force_topmost(hwnd: isize) {
 /// works regardless of which window currently has focus.
 pub fn is_ctrl_pressed() -> bool {
     unsafe { (GetAsyncKeyState(VK_CONTROL.0 as i32) as u16 & 0x8000) != 0 }
+}
+
+/// Whether the OS cursor currently sits inside the window's on-screen rect
+/// (both in physical pixels, so no DPI conversion is needed). Backs the
+/// widget's 150ms hover poll as a single native read — GetCursorPos and
+/// GetWindowRect are plain user32 calls, safe from any thread — where the
+/// frontend used to make four separate IPC round trips (cursor position,
+/// window position, window size, Ctrl state) per poll.
+pub fn cursor_over_window(hwnd: isize) -> bool {
+    unsafe {
+        let mut point = POINT::default();
+        if GetCursorPos(&mut point).is_err() {
+            return false;
+        }
+        let mut rect = RECT::default();
+        if GetWindowRect(HWND(hwnd as *mut _), &mut rect).is_err() {
+            return false;
+        }
+        point.x >= rect.left && point.x <= rect.right && point.y >= rect.top && point.y <= rect.bottom
+    }
 }
 
 /// Seconds since the last system-wide keyboard or mouse input, regardless of

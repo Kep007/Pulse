@@ -13,7 +13,7 @@ use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter, Manager};
 
 pub use matcher::Matcher;
-pub use win::is_ctrl_pressed;
+pub use win::{cursor_over_window, is_ctrl_pressed};
 
 const POLL_INTERVAL: Duration = Duration::from_secs(2);
 /// Consecutive polls a newly-detected project/activity must hold before it
@@ -539,6 +539,27 @@ pub fn resume(app: &AppHandle) -> TrackingState {
     );
     emit_toast(app, "Tracciamento ripreso");
     result
+}
+
+/// The entry point for the system-wide confirm triggers (global keyboard
+/// shortcut, mouse side-button hook): those fire on *every* press of their
+/// binding, whatever the user is doing, and the common case by far is
+/// "nothing to confirm" — so that path must exit after one in-memory check,
+/// without ever touching the database the way `confirm_pending_suggestion`'s
+/// state rebuild does.
+pub fn confirm_pending_if_any(app: &AppHandle) {
+    let Some(state) = app.try_state::<AppState>() else {
+        return;
+    };
+    {
+        let detector = state.detector.lock().unwrap();
+        if detector.pending.is_none() {
+            return;
+        }
+    }
+    // Tiny race window between the check and this call is harmless:
+    // confirm_pending_suggestion re-checks `pending` under the same lock.
+    let _ = confirm_pending_suggestion(app);
 }
 
 /// Applies a pending auto-detected suggestion (confirmed via the toast

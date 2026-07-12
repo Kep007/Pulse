@@ -45,7 +45,7 @@ pub fn open(app: &AppHandle) -> rusqlite::Result<Connection> {
     Ok(conn)
 }
 
-fn run_migrations(conn: &Connection) -> rusqlite::Result<()> {
+pub(crate) fn run_migrations(conn: &Connection) -> rusqlite::Result<()> {
     conn.execute_batch(
         "CREATE TABLE IF NOT EXISTS schema_migrations (
             name TEXT PRIMARY KEY,

@@ -1,7 +1,7 @@
 import { LogicalPosition, LogicalSize } from "@tauri-apps/api/dpi";
-import { cursorPosition, currentMonitor, getCurrentWindow } from "@tauri-apps/api/window";
+import { currentMonitor, getCurrentWindow } from "@tauri-apps/api/window";
 import { useEffect, useRef } from "react";
-import { isCtrlPressed } from "../lib/tauri";
+import { pollWidgetHover } from "../lib/tauri";
 
 const COLLAPSE_GRACE_MS = 400;
 const HOVER_POLL_MS = 150;
@@ -83,6 +83,13 @@ export function useHoverExpand(targetSize: SizeSpec, enabled: boolean) {
  * a mouseleave while the widget still has the mouse over it but not focus
  * would never arrive and the widget would stay stuck.
  *
+ * The whole read happens behind one `poll_widget_hover` IPC call — cursor,
+ * window rect and Ctrl state are all read natively on the Rust side. This
+ * poll runs every 150ms for the app's entire lifetime, so its per-tick cost
+ * is effectively the app's idle CPU floor: the previous shape (four separate
+ * IPC round trips per tick) was the single biggest steady-state consumer in
+ * the whole app.
+ *
  * Plain hover fades the widget out (see "fade" below) so it never blocks a
  * click meant for whatever window is underneath — Ctrl+hover is the
  * deliberate override that brings it to full visibility/interactivity
@@ -96,25 +103,19 @@ export function useHoverIntent(onChange: (state: WidgetHoverState) => void) {
     let cancelled = false;
 
     async function poll() {
+      // Widget hidden via the tray toggle: nothing on screen to hover, so
+      // skip even the single IPC call until it's shown again (the interval
+      // itself stays armed — the next tick after a show works normally).
+      if (document.hidden) {
+        return;
+      }
       try {
-        const win = getCurrentWindow();
-        const [cursor, position, size, ctrlPressed] = await Promise.all([
-          cursorPosition(),
-          win.outerPosition(),
-          win.outerSize(),
-          isCtrlPressed(),
-        ]);
+        const { inside, ctrl } = await pollWidgetHover();
         if (cancelled) {
           return;
         }
 
-        const inside =
-          cursor.x >= position.x &&
-          cursor.x <= position.x + size.width &&
-          cursor.y >= position.y &&
-          cursor.y <= position.y + size.height;
-
-        const nextState: WidgetHoverState = !inside ? "idle" : ctrlPressed ? "expand" : "fade";
+        const nextState: WidgetHoverState = !inside ? "idle" : ctrl ? "expand" : "fade";
 
         if (nextState !== "idle") {
           if (collapseTimer.current !== null) {

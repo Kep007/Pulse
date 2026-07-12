@@ -89,6 +89,18 @@ fn migrate_legacy_data_dir(app: &AppHandle) {
 /// land in the first few seconds after launch rather than interrupting an
 /// active session later.
 async fn check_for_update(app: AppHandle) {
+    // Dev builds must never self-update. The updater installs into
+    // %LOCALAPPDATA%\Programs\Pulse but can't touch the running dev exe in
+    // target\ — its version stays old forever, so every launch would
+    // re-download and re-install the same update. Combined with the restart
+    // below, that was a literal infinite loop (app closes, reinstalls,
+    // reopens...) on any machine whose autostart entry pointed at a dev
+    // build. Customers always run the installed exe, which the installer
+    // does update, so this gate changes nothing for them.
+    if cfg!(debug_assertions) {
+        return;
+    }
+
     let updater = match app.updater() {
         Ok(updater) => updater,
         Err(err) => {
@@ -118,7 +130,17 @@ async fn check_for_update(app: AppHandle) {
         return;
     }
 
-    app.restart();
+    // Exit, never restart. On Windows the NSIS updater normally kills the
+    // process itself and relaunches the *installed* copy, so this line is
+    // rarely even reached — but when download_and_install does return,
+    // restarting relaunches the exe currently running, and if that exe is
+    // not the installed one (a build launched from target\, an old copy)
+    // its version is still old after the install: it would check again,
+    // install again, restart again — the reopen-after-quit loop the
+    // autostart setting got blamed for. Exiting instead always breaks that
+    // cycle; the freshly installed copy is one click (or one logon) away.
+    detector::close_for_shutdown(&app);
+    app.exit(0);
 }
 
 fn show_widget(app: &AppHandle) {
@@ -129,14 +151,9 @@ fn show_widget(app: &AppHandle) {
 }
 
 fn show_home(app: &AppHandle) {
-    if let Some(window) = app.get_webview_window("home") {
-        // See open_home_window's identical unminimize()+center() — this is
-        // the tray menu's "Dashboard" entry, the other path to the same window.
-        let _ = window.unminimize();
-        let _ = window.center();
-        let _ = window.show();
-        let _ = window.set_focus();
-    }
+    // The tray menu's "Dashboard" entry — same create-or-show logic as the
+    // widget's Home button.
+    commands::window::open_or_create_home(app);
 }
 
 /// Shows or hides the widget and keeps the tray menu label in sync, so the
@@ -183,7 +200,7 @@ pub fn run() {
             tauri_plugin_global_shortcut::Builder::new()
                 .with_handler(|app, _shortcut, event| {
                     if event.state() == ShortcutState::Pressed {
-                        let _ = detector::confirm_pending_suggestion(app);
+                        detector::confirm_pending_if_any(app);
                     }
                 })
                 .build(),
@@ -200,7 +217,7 @@ pub fn run() {
             commands::tracking::deny_pending_suggestion,
             commands::window::open_home_window,
             commands::window::quit_app,
-            commands::window::is_ctrl_pressed,
+            commands::window::poll_widget_hover,
             commands::settings::set_autostart,
             commands::settings::get_autostart_status,
             commands::settings::reset_all_data,
@@ -325,8 +342,14 @@ pub fn run() {
         })
         .on_window_event(|window, event| {
             if let WindowEvent::CloseRequested { api, .. } = event {
-                api.prevent_close();
-                let _ = window.hide();
+                // Widget and toast only ever hide — the app lives in the
+                // tray. The home window instead really closes, freeing its
+                // WebView2 renderer; open_home_window recreates it (with
+                // fresh dashboard data) on the next open.
+                if window.label() != "home" {
+                    api.prevent_close();
+                    let _ = window.hide();
+                }
             }
         })
         .run(tauri::generate_context!())

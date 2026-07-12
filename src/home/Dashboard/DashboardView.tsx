@@ -1,3 +1,4 @@
+import { listen } from "@tauri-apps/api/event";
 import { useEffect, useMemo, useState } from "react";
 import { IconChevron } from "../../components/icons";
 import { getActivityDetectionEnabled, getDailySummary, getMonthlySummary, listActivityTypes } from "../../lib/tauri";
@@ -56,25 +57,51 @@ export function DashboardView() {
   }
 
   useEffect(() => {
-    const to = new Date();
-    // Matches Heatmap's own month-block range: the 1st of the month
-    // (MONTHS_BACK - 1) months ago, so fetched data covers exactly what's
-    // rendered (that range shifts forward on its own as months pass).
-    const from = new Date(to);
-    from.setUTCDate(1);
-    from.setUTCMonth(from.getUTCMonth() - (MONTHS_BACK - 1));
-    getDailySummary(isoDate(from), isoDate(to)).then(setDailyBuckets);
+    let cancelled = false;
 
-    const monthlyFrom = new Date(to);
-    monthlyFrom.setUTCMonth(monthlyFrom.getUTCMonth() - (MONTHLY_MONTHS - 1));
-    getMonthlySummary(isoDate(monthlyFrom), isoDate(to)).then(setMonthlyBuckets);
+    function loadAll() {
+      const to = new Date();
+      // Matches Heatmap's own month-block range: the 1st of the month
+      // (MONTHS_BACK - 1) months ago, so fetched data covers exactly what's
+      // rendered (that range shifts forward on its own as months pass).
+      const from = new Date(to);
+      from.setUTCDate(1);
+      from.setUTCMonth(from.getUTCMonth() - (MONTHS_BACK - 1));
+      const guard = <T,>(set: (value: T) => void) => (value: T) => {
+        if (!cancelled) {
+          set(value);
+        }
+      };
+      getDailySummary(isoDate(from), isoDate(to)).then(guard(setDailyBuckets));
 
-    const toIso = isoDate(to);
-    getDailySummary(ALL_TIME_FROM, toIso).then(setAllTimeDailyBuckets);
-    getMonthlySummary(ALL_TIME_FROM, toIso).then(setAllTimeMonthlyBuckets);
+      const monthlyFrom = new Date(to);
+      monthlyFrom.setUTCMonth(monthlyFrom.getUTCMonth() - (MONTHLY_MONTHS - 1));
+      getMonthlySummary(isoDate(monthlyFrom), isoDate(to)).then(guard(setMonthlyBuckets));
 
-    listActivityTypes().then(setActivityTypes);
-    getActivityDetectionEnabled().then(setActivityEnabled);
+      const toIso = isoDate(to);
+      getDailySummary(ALL_TIME_FROM, toIso).then(guard(setAllTimeDailyBuckets));
+      getMonthlySummary(ALL_TIME_FROM, toIso).then(guard(setAllTimeMonthlyBuckets));
+
+      listActivityTypes().then(guard(setActivityTypes));
+      getActivityDetectionEnabled().then(guard(setActivityEnabled));
+    }
+
+    loadAll();
+
+    // Live refresh while the window is open: every tracked-state transition
+    // (project switch, pause, confirm...) re-runs the summaries, plus a slow
+    // timer so the open segment's growing duration keeps flowing into
+    // today's numbers even when nothing switches for a while. Both are
+    // cheap now that the summaries aggregate inside SQLite, and both die
+    // with this window — it's destroyed on close, not hidden.
+    const unlistenPromise = listen("state-changed", () => loadAll());
+    const refreshTimer = window.setInterval(loadAll, 60_000);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(refreshTimer);
+      void unlistenPromise.then((unlisten) => unlisten());
+    };
   }, []);
 
   // Color follows the entity (its catalog id), never its current rank in a

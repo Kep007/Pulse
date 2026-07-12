@@ -71,7 +71,14 @@ unsafe extern "system" fn hook_proc(code: i32, wparam: WPARAM, lparam: LPARAM) -
             };
             if matches {
                 if let Some(app) = APP_HANDLE.get() {
-                    let _ = crate::detector::confirm_pending_suggestion(app);
+                    // Never do real work on the hook thread: a low-level
+                    // mouse hook that dawdles delays every mouse event
+                    // system-wide (and Windows drops hooks that exceed its
+                    // timeout). The confirm's DB writes and event emits run
+                    // on their own short-lived thread instead; presses are
+                    // rare enough that a thread per press costs nothing.
+                    let app = app.clone();
+                    std::thread::spawn(move || crate::detector::confirm_pending_if_any(&app));
                 }
             }
         }

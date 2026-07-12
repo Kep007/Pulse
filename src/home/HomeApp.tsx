@@ -2,7 +2,6 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useEffect, useRef, useState } from "react";
 import { IconClose, IconMinimize, IconPdf } from "../components/icons";
 import { DashboardView } from "./Dashboard/DashboardView";
-import { exportPdfReport } from "./pdf/exportPdf";
 import type { ExportRange } from "./pdf/exportPdf";
 import { ExportPdfDialog } from "./pdf/ExportPdfDialog";
 import { ProjectsView } from "./Projects/ProjectsView";
@@ -17,6 +16,14 @@ export function HomeApp() {
   const [exportDialogOpen, setExportDialogOpen] = useState(false);
   const [exportNote, setExportNote] = useState<string | null>(null);
   const noteTimer = useRef<number | null>(null);
+
+  // The window is created hidden by open_home_window (it no longer exists
+  // from startup) — revealing it only after the first render is what spares
+  // the user the blank white flash of a booting webview.
+  useEffect(() => {
+    const win = getCurrentWindow();
+    void win.show().then(() => win.setFocus());
+  }, []);
 
   useEffect(() => {
     return () => {
@@ -41,6 +48,11 @@ export function HomeApp() {
     }
     setExporting(true);
     try {
+      // Loaded on demand: jsPDF + autotable are by far the heaviest JS in
+      // the Home bundle, and export is a rare action — no reason for the
+      // window to parse them at startup. (The type-only import above is
+      // erased at compile time and doesn't pull the module in.)
+      const { exportPdfReport } = await import("./pdf/exportPdf");
       const outcome = await exportPdfReport(range ?? undefined);
       if (outcome === "empty") {
         showNote("Nessun dato da esportare nel periodo scelto.");

@@ -44,8 +44,10 @@ export function quitApp() {
   return invoke<void>("quit_app");
 }
 
-export function isCtrlPressed() {
-  return invoke<boolean>("is_ctrl_pressed");
+export type WidgetHover = { inside: boolean; ctrl: boolean };
+
+export function pollWidgetHover() {
+  return invoke<WidgetHover>("poll_widget_hover");
 }
 
 export function setAutostart(enabled: boolean) {
