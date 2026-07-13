@@ -218,6 +218,7 @@ pub fn run() {
             commands::window::open_home_window,
             commands::window::quit_app,
             commands::window::poll_widget_hover,
+            commands::window::reveal_extension_folder,
             commands::settings::set_autostart,
             commands::settings::get_autostart_status,
             commands::settings::reset_all_data,

@@ -1,5 +1,6 @@
 use crate::detector;
 use tauri::{AppHandle, Manager, WebviewUrl, WebviewWindowBuilder};
+use tauri_plugin_opener::OpenerExt;
 
 /// The home window is created on demand and *really* destroyed on close
 /// (see the CloseRequested handler in lib.rs) instead of living hidden from
@@ -55,6 +56,25 @@ pub fn open_or_create_home(app: &AppHandle) {
 pub fn quit_app(app: AppHandle) {
     detector::close_for_shutdown(&app);
     app.exit(0);
+}
+
+/// Opens Explorer on the bundled companion-extension folder (shipped as an
+/// installer resource, see tauri.conf.json `bundle.resources`), so the user
+/// can point Chrome's "Load unpacked" at it. Returns the path too, for the
+/// Settings guide to display it. Manual load is the only zero-cost route for
+/// Chrome — Google blocks off-store auto-install on consumer machines (see
+/// nsis-hooks.nsh for the full spike result).
+#[tauri::command]
+pub fn reveal_extension_folder(app: AppHandle) -> Result<String, String> {
+    let path = app
+        .path()
+        .resolve("extension", tauri::path::BaseDirectory::Resource)
+        .map_err(|err| err.to_string())?;
+    let display = path.to_string_lossy().to_string();
+    app.opener()
+        .open_path(display.clone(), None::<&str>)
+        .map_err(|err| err.to_string())?;
+    Ok(display)
 }
 
 #[derive(serde::Serialize)]

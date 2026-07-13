@@ -62,6 +62,10 @@ export function resetAllData() {
   return invoke<TrackingState>("reset_all_data");
 }
 
+export function revealExtensionFolder() {
+  return invoke<string>("reveal_extension_folder");
+}
+
 export type CompanyDto = { name: string; aliases: string[] };
 
 export function getCompany() {

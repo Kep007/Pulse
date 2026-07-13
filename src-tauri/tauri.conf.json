@@ -49,6 +49,9 @@
     "targets": ["msi", "nsis"],
     "icon": ["icons/icon.ico"],
     "createUpdaterArtifacts": true,
+    "resources": {
+      "../extension": "extension"
+    },
     "windows": {
       "nsis": {
         "installerHooks": "./nsis-hooks.nsh"

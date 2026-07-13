@@ -1,5 +1,6 @@
 import { ActivityDetectionToggle } from "./ActivityDetectionToggle";
 import { AutostartToggle } from "./AutostartToggle";
+import { BrowserTrackingSetting } from "./BrowserTrackingSetting";
 import { ConfirmShortcutSetting } from "./ConfirmShortcutSetting";
 import { QuitButton } from "./QuitButton";
 import { ResetDataButton } from "./ResetDataButton";
@@ -13,6 +14,7 @@ export function SettingsView() {
       <WidgetScaleSetting />
       <AutostartToggle />
       <ActivityDetectionToggle />
+      <BrowserTrackingSetting />
       <ConfirmShortcutSetting />
       <ResetDataButton />
       <QuitButton />
