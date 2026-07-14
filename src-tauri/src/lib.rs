@@ -257,6 +257,16 @@ pub fn run() {
             let company_terms = commands::settings::company_terms(app.handle());
             let state = AppState::new(conn, &company_terms)?;
             app.manage(state);
+            // Bring the mirrored company project into existence for anyone who
+            // configured a company before it synced to the catalog. Only
+            // (re)creates a missing project — never clobbers Projects-table
+            // edits — and any fresh project it makes is folded into the matcher
+            // by the refresh right after.
+            if let Err(err) = commands::settings::sync_company_project(app.handle(), false) {
+                log::error!("failed to sync company project on startup: {err}");
+            } else if let Err(err) = detector::refresh_matcher(app.handle()) {
+                log::error!("failed to refresh matcher after company sync: {err}");
+            }
             detector::spawn_polling(app.handle().clone());
             detector::browser_signal::spawn_server(app.handle().clone());
 

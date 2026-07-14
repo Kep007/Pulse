@@ -1,8 +1,9 @@
+use crate::db;
 use crate::detector::mouse_hook::{self, MouseButton};
 use crate::detector::{self, AppState};
 use crate::models::TrackingState;
 use std::str::FromStr;
-use tauri::{AppHandle, State};
+use tauri::{AppHandle, Emitter, Manager, State};
 use tauri_plugin_autostart::ManagerExt;
 use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut};
 use tauri_plugin_store::StoreExt;
@@ -18,6 +19,10 @@ pub(crate) fn settings_store_path(app: &AppHandle) -> std::path::PathBuf {
 
 const COMPANY_NAME_KEY: &str = "companyName";
 const COMPANY_ALIASES_KEY: &str = "companyAliases";
+/// The id of the catalog project that mirrors the configured company, so a
+/// later rename edits that same row instead of creating a duplicate. See
+/// `sync_company_project`.
+const COMPANY_PROJECT_ID_KEY: &str = "companyProjectId";
 
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -89,11 +94,78 @@ pub fn set_company(app: AppHandle, name: String, aliases: Vec<String>) -> Result
     );
     store.save().map_err(|err| err.to_string())?;
 
+    // Mirror the company onto a real catalog project so it shows up in the
+    // widget's project picker and can be tracked like any other project. This
+    // is the authoritative edit, so it pushes the company's name/aliases onto
+    // that project.
+    sync_company_project(&app, true)?;
+
     // The company terms live inside the compiled matcher — without this,
     // the new priority rule would only apply after an app restart.
     detector::refresh_matcher(&app).map_err(|err| err.to_string())?;
+    // The picker and dashboard dropdowns re-fetch on this — without it the new
+    // (or renamed) company project wouldn't appear until they remounted.
+    let _ = app.emit(crate::commands::projects::CATALOG_CHANGED_EVENT, ());
 
     Ok(CompanyDto { name, aliases })
+}
+
+/// Keeps a real catalog project in step with the configured company, so "your
+/// company" behaves like an actual project — visible in the picker, selectable,
+/// trackable — not just an invisible matcher-priority hint. The mirrored
+/// project's id is remembered in the settings store so a rename reuses it.
+///
+/// `push_fields` distinguishes the two callers: the company card's explicit
+/// save (`true`) writes the company's current name and aliases onto the
+/// project, while the startup reconciliation (`false`) only (re)creates a
+/// missing project — it never overwrites fields, so aliases the user tweaked
+/// from the Projects table survive every launch.
+pub(crate) fn sync_company_project(app: &AppHandle, push_fields: bool) -> Result<(), String> {
+    let company = read_company(app)?;
+    let name = company.name.trim().to_string();
+    // Company cleared: leave any previously-mirrored project in place (it may
+    // hold tracked history) and simply stop tracking the link.
+    if name.is_empty() {
+        return Ok(());
+    }
+
+    let store = app.store(settings_store_path(app)).map_err(|err| err.to_string())?;
+    let stored_id = store.get(COMPANY_PROJECT_ID_KEY).and_then(|value| value.as_i64());
+
+    let state = app.state::<AppState>();
+    let conn = state.db.lock().unwrap();
+
+    // Reuse the remembered project if it's still live; otherwise adopt an
+    // existing active project with the same name (a company project the user
+    // created by hand before this synced automatically); otherwise create one.
+    let existing = match stored_id {
+        Some(id) if db::project_is_active(&conn, id).map_err(|err| err.to_string())? => Some(id),
+        _ => db::find_active_project_id_by_name(&conn, &name).map_err(|err| err.to_string())?,
+    };
+
+    let project_id = match existing {
+        Some(id) => {
+            if push_fields {
+                db::set_project_name(&conn, id, &name).map_err(|err| err.to_string())?;
+                db::set_project_aliases(&conn, id, &company.aliases).map_err(|err| err.to_string())?;
+            }
+            id
+        }
+        None => {
+            let created = db::create_project(&conn, &name, None).map_err(|err| err.to_string())?;
+            db::set_project_aliases(&conn, created.id, &company.aliases)
+                .map_err(|err| err.to_string())?;
+            created.id
+        }
+    };
+    drop(conn);
+
+    if stored_id != Some(project_id) {
+        store.set(COMPANY_PROJECT_ID_KEY, serde_json::Value::from(project_id));
+        store.save().map_err(|err| err.to_string())?;
+    }
+
+    Ok(())
 }
 
 /// Parses our own accelerator strings ("CommandOrControl+Shift+KeyY") into a

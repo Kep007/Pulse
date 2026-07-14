@@ -9,7 +9,7 @@ use tauri::{AppHandle, Emitter, State};
 // dashboard's filter dropdowns, etc. — can re-fetch instead of silently
 // going stale until its component happens to remount. Payload-less: it's a
 // "go re-fetch listProjects()" signal, not a diff.
-const CATALOG_CHANGED_EVENT: &str = "catalog-changed";
+pub(crate) const CATALOG_CHANGED_EVENT: &str = "catalog-changed";
 
 #[tauri::command]
 pub fn create_project(

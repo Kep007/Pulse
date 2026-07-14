@@ -69,10 +69,10 @@ function CompanyCard() {
         {saved && <span className="company-saved-note">Salvato ✓</span>}
       </div>
       <p className="company-hint">
-        Il nome e gli alias dell'azienda per cui lavori (es. LT, LT TEAM, LT CONSULTING). Quando in
-        una finestra o chat compaiono sia l'azienda sia un altro progetto (es. "LT TEAM / OG
-        MOTORS"), il tempo va all'altro progetto; se compare solo l'azienda, il tempo va al
-        progetto con quel nome.
+        Il nome e gli alias dell'azienda per cui lavori (es. LT, LT TEAM, LT CONSULTING). L'azienda
+        compare automaticamente come progetto nell'elenco qui sotto e nel widget. Quando in una
+        finestra o chat compaiono sia l'azienda sia un altro progetto (es. "LT TEAM / OG MOTORS"),
+        il tempo va all'altro progetto; se compare solo l'azienda, il tempo va al progetto azienda.
       </p>
       <div className="company-fields">
         <input

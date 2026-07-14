@@ -257,6 +257,46 @@ pub fn update_project(
     Ok(())
 }
 
+/// Renames a project without touching its color — used by the company sync
+/// (see `settings::sync_company_project`), which only knows the company's new
+/// name and must preserve whatever color the project already had.
+pub fn set_project_name(conn: &Connection, id: i64, name: &str) -> rusqlite::Result<()> {
+    conn.execute(
+        "UPDATE projects SET name = ?1 WHERE id = ?2",
+        rusqlite::params![name, id],
+    )?;
+    Ok(())
+}
+
+/// True when the project exists and hasn't been archived — the company sync
+/// uses this to decide whether its remembered company-project id still points
+/// at a live row before reusing it.
+pub fn project_is_active(conn: &Connection, id: i64) -> rusqlite::Result<bool> {
+    conn.query_row(
+        "SELECT EXISTS(SELECT 1 FROM projects WHERE id = ?1 AND archived_at IS NULL)",
+        [id],
+        |row| row.get(0),
+    )
+}
+
+/// The id of an active project matching `name` (case-insensitively), if any —
+/// lets the company sync adopt a project the user already created by hand for
+/// their company (the previous "make a project named after your company"
+/// workflow) instead of spawning a duplicate.
+pub fn find_active_project_id_by_name(
+    conn: &Connection,
+    name: &str,
+) -> rusqlite::Result<Option<i64>> {
+    conn.query_row(
+        "SELECT id FROM projects
+         WHERE archived_at IS NULL AND name = ?1 COLLATE NOCASE
+         ORDER BY id LIMIT 1",
+        [name],
+        |row| row.get(0),
+    )
+    .optional()
+}
+
 /// Archives rather than deletes: keeps historical time_entries attributed to
 /// a real project name instead of silently losing that context, while
 /// hiding the project from the picker and management table going forward.
