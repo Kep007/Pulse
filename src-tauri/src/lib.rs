@@ -198,8 +198,22 @@ pub fn run() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(
             tauri_plugin_global_shortcut::Builder::new()
-                .with_handler(|app, _shortcut, event| {
-                    if event.state() == ShortcutState::Pressed {
+                .with_handler(|app, shortcut, event| {
+                    if event.state() != ShortcutState::Pressed {
+                        return;
+                    }
+                    // One handler fires for every registered hotkey; the lock
+                    // shortcut is told apart from the confirm shortcut by
+                    // matching against the one stashed in AppState. Anything
+                    // that isn't the lock shortcut falls through to confirm,
+                    // preserving the original single-shortcut behavior.
+                    let is_lock = app
+                        .try_state::<AppState>()
+                        .map(|state| state.lock_shortcut.lock().unwrap().as_ref() == Some(shortcut))
+                        .unwrap_or(false);
+                    if is_lock {
+                        detector::toggle_idle_lock(app);
+                    } else {
                         detector::confirm_pending_if_any(app);
                     }
                 })
@@ -226,6 +240,12 @@ pub fn run() {
             commands::settings::set_confirm_shortcut,
             commands::settings::get_activity_detection_enabled,
             commands::settings::set_activity_detection_enabled,
+            commands::settings::get_idle_lock,
+            commands::settings::set_idle_lock,
+            commands::settings::get_idle_timeout,
+            commands::settings::set_idle_timeout,
+            commands::settings::get_lock_shortcut,
+            commands::settings::set_lock_shortcut,
             commands::settings::get_company,
             commands::settings::set_company,
             commands::stats::get_daily_summary,
@@ -309,6 +329,39 @@ pub fn run() {
                 .activity_detection_enabled
                 .lock()
                 .unwrap() = activity_detection_enabled;
+
+            // Idle threshold: persisted, so a customer's chosen "go idle after
+            // N minutes" survives restarts. The idle *lock* deliberately is
+            // not persisted (see DetectorState::idle_lock) — it always starts
+            // off.
+            let idle_timeout_secs = {
+                let store = app.store(db::data_dir(app.handle()).join("settings.json"))?;
+                store
+                    .get("idleTimeoutSecs")
+                    .and_then(|value| value.as_u64())
+                    .unwrap_or(detector::DEFAULT_IDLE_TIMEOUT_SECS)
+            };
+            detector::set_idle_timeout_secs(app.handle(), idle_timeout_secs);
+
+            // The idle-lock global shortcut, registered the same way as the
+            // confirm shortcut but always keyboard-only. Its parsed hotkey is
+            // stashed in AppState so the shared handler can tell the two apart.
+            let lock_shortcut = {
+                let store = app.store(db::data_dir(app.handle()).join("settings.json"))?;
+                store
+                    .get("lockShortcut")
+                    .and_then(|value| value.as_str().map(str::to_string))
+                    .unwrap_or_else(|| commands::settings::DEFAULT_LOCK_SHORTCUT.to_string())
+            };
+            match commands::settings::parse_accelerator(&lock_shortcut) {
+                Ok(hotkey) => {
+                    if let Err(err) = app.global_shortcut().register(hotkey) {
+                        log::error!("failed to register lock shortcut: {err}");
+                    }
+                    *app.state::<AppState>().lock_shortcut.lock().unwrap() = Some(hotkey);
+                }
+                Err(err) => log::error!("failed to parse lock shortcut: {err}"),
+            }
 
             let widget_visible = app
                 .get_webview_window("main")

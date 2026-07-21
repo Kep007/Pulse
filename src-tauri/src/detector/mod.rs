@@ -11,6 +11,7 @@ use rusqlite::Connection;
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter, Manager};
+use tauri_plugin_global_shortcut::Shortcut;
 
 pub use matcher::Matcher;
 pub use win::{cursor_over_window, is_ctrl_pressed};
@@ -27,11 +28,14 @@ const POLL_INTERVAL: Duration = Duration::from_secs(2);
 /// glances that outlast even this are caught by the second line of defense,
 /// micro-segment absorption in `db::transition_segment`.
 const DEBOUNCE_HITS: u8 = 3;
-/// No keyboard/mouse input for this long stops crediting time to whatever
-/// project/activity is current — see the idle handling at the top of
-/// `tick`. Deliberately keyboard-inclusive (not mouse-only): typing counts
-/// as activity even with the mouse untouched.
-const IDLE_THRESHOLD_SECS: u64 = 60;
+/// Default seconds of no keyboard/mouse input before crediting time to
+/// whatever project/activity is current stops — see the idle handling at the
+/// top of `tick`. Deliberately keyboard-inclusive (not mouse-only): typing
+/// counts as activity even with the mouse untouched. This is only the
+/// fallback: the live value lives in `DetectorState::idle_timeout_secs`,
+/// configurable from Settings (1m/2m/3m/5m/...) and loaded from the store at
+/// startup.
+pub const DEFAULT_IDLE_TIMEOUT_SECS: u64 = 60;
 
 #[derive(Clone, PartialEq)]
 struct Suggestion {
@@ -59,6 +63,16 @@ pub struct DetectorState {
     /// the open DB segment is closed — so resuming activity can reopen
     /// tracking on the same one without waiting for a fresh detection.
     is_idle: bool,
+    /// When true the idle handling in `tick` is skipped entirely: no amount
+    /// of inactivity closes the open segment, so a meeting, a call, or a long
+    /// think keeps crediting time to the current project. Toggled from the
+    /// widget button, the global lock shortcut, or Settings. Intentionally
+    /// NOT persisted — it resets to off on every launch so a lock left on by
+    /// accident can never silently inflate tomorrow's tracked time.
+    idle_lock: bool,
+    /// Live idle threshold in seconds (see `DEFAULT_IDLE_TIMEOUT_SECS`).
+    /// Loaded from the settings store at startup and changed from Settings.
+    idle_timeout_secs: u64,
     segment_started_at: DateTime<Utc>,
     /// Seconds already tracked today on the current project/activity before
     /// `segment_started_at` — recomputed by `commit` every time a segment
@@ -82,6 +96,8 @@ impl DetectorState {
             source: Source::Auto,
             is_paused: false,
             is_idle: false,
+            idle_lock: false,
+            idle_timeout_secs: DEFAULT_IDLE_TIMEOUT_SECS,
             segment_started_at: now,
             today_seconds_before_segment: 0,
             candidate: None,
@@ -105,6 +121,12 @@ pub struct AppState {
     /// app's entire lifetime otherwise, which is what makes every browser
     /// tab fall back to plain window-title matching with no behavior change.
     pub browser_signal: Mutex<Option<BrowserSignal>>,
+    /// The currently-registered global shortcut that toggles the idle lock,
+    /// if any. The global-shortcut handler in `lib.rs` fires for *every*
+    /// registered hotkey, so it compares the pressed one against this to tell
+    /// a lock press apart from a confirm press. Kept in sync by
+    /// `set_lock_shortcut` and set once at startup.
+    pub lock_shortcut: Mutex<Option<Shortcut>>,
 }
 
 impl AppState {
@@ -118,6 +140,7 @@ impl AppState {
             detector: Mutex::new(DetectorState::initial(Utc::now())),
             activity_detection_enabled: Mutex::new(false),
             browser_signal: Mutex::new(None),
+            lock_shortcut: Mutex::new(None),
         })
     }
 }
@@ -167,7 +190,12 @@ fn tick(app: &AppHandle) {
     let idle_seconds = win::system_idle_seconds();
     let now = Utc::now();
 
-    if idle_seconds >= IDLE_THRESHOLD_SECS {
+    // The idle lock (meeting/thinking mode) suppresses the whole idle branch:
+    // no matter how long the system stays untouched, the open segment is left
+    // running. Falling through to the reopen branch below also means a lock
+    // engaged *after* the app had already gone idle resumes tracking here on
+    // the next tick, without waiting for real input.
+    if !detector.idle_lock && idle_seconds >= detector.idle_timeout_secs {
         // Only worth entering idle if something was actually being tracked —
         // otherwise there's no segment to close and nothing to protect.
         if !detector.is_idle
@@ -404,6 +432,7 @@ pub fn get_current_state(app: &AppHandle) -> TrackingState {
             source: Source::Auto,
             is_paused: false,
             is_idle: false,
+            is_idle_locked: false,
             segment_started_at: Utc::now().to_rfc3339(),
             today_seconds_before_segment: 0,
             pending: None,
@@ -540,6 +569,99 @@ pub fn resume(app: &AppHandle) -> TrackingState {
     );
     emit_toast(app, "Tracciamento ripreso");
     result
+}
+
+/// Engages or releases the idle lock (see `DetectorState::idle_lock`).
+///
+/// Engaging while the app is already idle immediately reopens tracking on
+/// whatever was current, so the lock retroactively rescues the moment it's
+/// turned on rather than only stopping *future* idling.
+///
+/// Releasing while the system is *already* past the idle threshold closes the
+/// open segment at `now` and enters idle here, rather than leaving it for the
+/// next tick — which would backdate the close to when input actually stopped
+/// (see the idle branch in `tick`) and erase exactly the stretch the lock was
+/// protecting.
+pub fn set_idle_lock(app: &AppHandle, enabled: bool) -> TrackingState {
+    let state = app.state::<AppState>();
+    let mut detector = state.detector.lock().unwrap();
+    detector.idle_lock = enabled;
+
+    let has_tracking = detector.stable_project.is_some() || detector.stable_activity.is_some();
+    let conn = state.db.lock().unwrap();
+    let result = if enabled && detector.is_idle {
+        detector.is_idle = false;
+        let project_id = detector.stable_project;
+        let activity_type_id = detector.stable_activity;
+        let source = detector.source;
+        commit(
+            app,
+            &mut detector,
+            &conn,
+            project_id,
+            activity_type_id,
+            source,
+            None,
+            None,
+            Utc::now(),
+        )
+    } else {
+        if !enabled
+            && !detector.is_idle
+            && has_tracking
+            && win::system_idle_seconds() >= detector.idle_timeout_secs
+        {
+            if let Err(err) = db::close_open_segment(&conn, Utc::now()) {
+                log::error!("failed to close segment on lock release: {err}");
+            }
+            detector.is_idle = true;
+            detector.candidate = None;
+        }
+        let tracking_state = build_tracking_state(&conn, &detector);
+        let _ = app.emit("state-changed", &tracking_state);
+        tracking_state
+    };
+    drop(conn);
+    emit_toast(
+        app,
+        if enabled {
+            "Blocco inattività attivo"
+        } else {
+            "Blocco inattività disattivato"
+        },
+    );
+    result
+}
+
+/// Flips the idle lock — the entry point for the global lock shortcut, which
+/// only knows "the user pressed it", not which way to move.
+pub fn toggle_idle_lock(app: &AppHandle) {
+    let current = {
+        let state = app.state::<AppState>();
+        let detector = state.detector.lock().unwrap();
+        detector.idle_lock
+    };
+    let _ = set_idle_lock(app, !current);
+}
+
+pub fn is_idle_locked(app: &AppHandle) -> bool {
+    let state = app.state::<AppState>();
+    let detector = state.detector.lock().unwrap();
+    detector.idle_lock
+}
+
+pub fn idle_timeout_secs(app: &AppHandle) -> u64 {
+    let state = app.state::<AppState>();
+    let detector = state.detector.lock().unwrap();
+    detector.idle_timeout_secs
+}
+
+/// Sets the live idle threshold (seconds). Persistence to the settings store
+/// is the caller's job — this only updates the in-memory poller state.
+pub fn set_idle_timeout_secs(app: &AppHandle, seconds: u64) {
+    let state = app.state::<AppState>();
+    let mut detector = state.detector.lock().unwrap();
+    detector.idle_timeout_secs = seconds;
 }
 
 /// The entry point for the system-wide confirm triggers (global keyboard
@@ -725,6 +847,7 @@ fn build_tracking_state(conn: &Connection, detector: &DetectorState) -> Tracking
         source: detector.source,
         is_paused: detector.is_paused,
         is_idle: detector.is_idle,
+        is_idle_locked: detector.idle_lock,
         segment_started_at: detector.segment_started_at.to_rfc3339(),
         today_seconds_before_segment: detector.today_seconds_before_segment,
         pending,

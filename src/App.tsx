@@ -1,11 +1,17 @@
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { IconHome, IconPause, IconPlay, IconSwitch, IconTag } from "./components/icons";
+import { IconHome, IconLock, IconPause, IconPlay, IconSwitch, IconTag } from "./components/icons";
 import { useElapsedSeconds } from "./lib/events";
 import { formatElapsed } from "./lib/format";
 import { useTrackingState } from "./lib/TrackingContext";
-import { getActivityDetectionEnabled, openHomeWindow, pauseTracking, resumeTracking } from "./lib/tauri";
+import {
+  getActivityDetectionEnabled,
+  openHomeWindow,
+  pauseTracking,
+  resumeTracking,
+  setIdleLock,
+} from "./lib/tauri";
 import { ActivityPicker } from "./widget/ActivityPicker";
 import { ProjectPicker } from "./widget/ProjectPicker";
 import { useHoverExpand, useHoverIntent } from "./widget/useHoverExpand";
@@ -107,6 +113,7 @@ export function App() {
 
   const isPaused = state?.isPaused ?? false;
   const isIdle = state?.isIdle ?? false;
+  const isIdleLocked = state?.isIdleLocked ?? false;
   const hasProject = state?.project != null;
   // Priority, most to least specific: paused (gray) always wins; then idle
   // (red) — the system's been untouched long enough that the backend already
@@ -333,6 +340,10 @@ export function App() {
     void (state?.isPaused ? resumeTracking() : pauseTracking());
   }
 
+  function toggleLock() {
+    void setIdleLock(!isIdleLocked);
+  }
+
   const elapsedLabel = useMemo(() => formatElapsed(elapsed), [elapsed]);
 
   return (
@@ -362,6 +373,12 @@ export function App() {
         </span>
       </div>
 
+      {isIdleLocked && !isExpanded && (
+        <div className="lock-badge" title="Blocco inattività attivo">
+          <IconLock size={10} />
+        </div>
+      )}
+
       <section className={isExpanded ? "drag-zone expanded" : "drag-zone"}>
         {isExpanded ? (
           <div className="label-row">
@@ -376,6 +393,11 @@ export function App() {
                       ? "Manuale"
                       : "Automatico"}
               </span>
+              {isIdleLocked && (
+                <span className="lock-inline" title="Blocco inattività attivo">
+                  <IconLock size={12} />
+                </span>
+              )}
             </div>
             {hasTimer && <time>{elapsedLabel}</time>}
           </div>
@@ -421,6 +443,19 @@ export function App() {
             >
               <IconHome size={16} />
               <span>Home</span>
+            </button>
+            <button
+              className={`icon-only lock-toggle${isIdleLocked ? " active" : ""}`}
+              type="button"
+              title={
+                isIdleLocked
+                  ? "Disattiva blocco inattività"
+                  : "Blocca: niente pausa per inattività (riunioni, pensieri)"
+              }
+              aria-pressed={isIdleLocked}
+              onClick={toggleLock}
+            >
+              <IconLock size={15} />
             </button>
             <button
               className="primary"

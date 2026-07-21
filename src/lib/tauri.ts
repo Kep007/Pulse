@@ -104,6 +104,30 @@ export function setConfirmShortcut(shortcut: string) {
   return invoke<string>("set_confirm_shortcut", { shortcut });
 }
 
+export function getIdleLock() {
+  return invoke<boolean>("get_idle_lock");
+}
+
+export function setIdleLock(enabled: boolean) {
+  return invoke<TrackingState>("set_idle_lock", { enabled });
+}
+
+export function getIdleTimeout() {
+  return invoke<number>("get_idle_timeout");
+}
+
+export function setIdleTimeout(seconds: number) {
+  return invoke<number>("set_idle_timeout", { seconds });
+}
+
+export function getLockShortcut() {
+  return invoke<string>("get_lock_shortcut");
+}
+
+export function setLockShortcut(shortcut: string) {
+  return invoke<string>("set_lock_shortcut", { shortcut });
+}
+
 export function getActivityDetectionEnabled() {
   return invoke<boolean>("get_activity_detection_enabled");
 }

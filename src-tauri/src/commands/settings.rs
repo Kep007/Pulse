@@ -9,7 +9,18 @@ use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut}
 use tauri_plugin_store::StoreExt;
 
 pub const DEFAULT_CONFIRM_SHORTCUT: &str = "CommandOrControl+Shift+KeyY";
+/// Default global shortcut that toggles the idle lock (meeting/thinking
+/// mode). L for "lock"; distinct from the confirm shortcut's default.
+pub const DEFAULT_LOCK_SHORTCUT: &str = "CommandOrControl+Shift+KeyL";
 const ACTIVITY_DETECTION_KEY: &str = "activityDetectionEnabled";
+const LOCK_SHORTCUT_KEY: &str = "lockShortcut";
+const IDLE_TIMEOUT_KEY: &str = "idleTimeoutSecs";
+/// Bounds for the configurable idle threshold — 30s floor keeps a too-eager
+/// setting from flapping the segment every couple of ticks; 1h ceiling is
+/// well past any real "long meeting". Settings only offers a preset list
+/// inside this range, but the clamp guards against anything else.
+const IDLE_TIMEOUT_MIN_SECS: u64 = 30;
+const IDLE_TIMEOUT_MAX_SECS: u64 = 3600;
 
 /// Absolute path so `tauri-plugin-store` writes next to the database instead
 /// of its own default (roaming `app_data_dir`) — see `db::data_dir`.
@@ -267,6 +278,84 @@ pub fn set_confirm_shortcut(app: AppHandle, shortcut: String) -> Result<String, 
 
     let store = app.store(settings_store_path(&app)).map_err(|err| err.to_string())?;
     store.set("confirmShortcut", serde_json::Value::String(shortcut.clone()));
+    store.save().map_err(|err| err.to_string())?;
+
+    Ok(shortcut)
+}
+
+#[tauri::command]
+pub fn get_idle_lock(app: AppHandle) -> bool {
+    detector::is_idle_locked(&app)
+}
+
+#[tauri::command]
+pub fn set_idle_lock(app: AppHandle, enabled: bool) -> TrackingState {
+    detector::set_idle_lock(&app, enabled)
+}
+
+#[tauri::command]
+pub fn get_idle_timeout(app: AppHandle) -> u64 {
+    detector::idle_timeout_secs(&app)
+}
+
+#[tauri::command]
+pub fn set_idle_timeout(app: AppHandle, seconds: u64) -> Result<u64, String> {
+    let seconds = seconds.clamp(IDLE_TIMEOUT_MIN_SECS, IDLE_TIMEOUT_MAX_SECS);
+    detector::set_idle_timeout_secs(&app, seconds);
+
+    let store = app.store(settings_store_path(&app)).map_err(|err| err.to_string())?;
+    store.set(IDLE_TIMEOUT_KEY, serde_json::Value::from(seconds));
+    store.save().map_err(|err| err.to_string())?;
+
+    Ok(seconds)
+}
+
+#[tauri::command]
+pub fn get_lock_shortcut(app: AppHandle) -> Result<String, String> {
+    let store = app.store(settings_store_path(&app)).map_err(|err| err.to_string())?;
+    Ok(store
+        .get(LOCK_SHORTCUT_KEY)
+        .and_then(|value| value.as_str().map(str::to_string))
+        .unwrap_or_else(|| DEFAULT_LOCK_SHORTCUT.to_string()))
+}
+
+/// Rebinds the global idle-lock shortcut. Keyboard-only (unlike the confirm
+/// shortcut, which also accepts a mouse side button): the lock lives entirely
+/// in the keyboard hotkey path, so a mouse binding here would silently never
+/// fire. Registers the new hotkey before unregistering the old one so a bad
+/// combination leaves the working one intact, and keeps `AppState.lock_shortcut`
+/// in step so the shared handler can still tell a lock press from a confirm.
+#[tauri::command]
+pub fn set_lock_shortcut(
+    app: AppHandle,
+    state: State<AppState>,
+    shortcut: String,
+) -> Result<String, String> {
+    if MouseButton::parse(&shortcut).is_some() {
+        return Err("Il blocco supporta solo scorciatoie da tastiera.".to_string());
+    }
+
+    let previous = {
+        let store = app.store(settings_store_path(&app)).map_err(|err| err.to_string())?;
+        store
+            .get(LOCK_SHORTCUT_KEY)
+            .and_then(|value| value.as_str().map(str::to_string))
+            .unwrap_or_else(|| DEFAULT_LOCK_SHORTCUT.to_string())
+    };
+
+    let manager = app.global_shortcut();
+    let hotkey = parse_accelerator(&shortcut)?;
+    manager.register(hotkey).map_err(|err| err.to_string())?;
+
+    if previous != shortcut {
+        if let Ok(previous_hotkey) = parse_accelerator(&previous) {
+            let _ = manager.unregister(previous_hotkey);
+        }
+    }
+    *state.lock_shortcut.lock().unwrap() = Some(hotkey);
+
+    let store = app.store(settings_store_path(&app)).map_err(|err| err.to_string())?;
+    store.set(LOCK_SHORTCUT_KEY, serde_json::Value::String(shortcut.clone()));
     store.save().map_err(|err| err.to_string())?;
 
     Ok(shortcut)

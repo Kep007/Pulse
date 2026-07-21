@@ -55,6 +55,10 @@ pub struct TrackingState {
     /// fields still name whatever was last tracked, so tracking can resume
     /// on the same one the moment input comes back, without re-detecting it.
     pub is_idle: bool,
+    /// True while the idle "lock" is engaged — see `DetectorState::idle_lock`.
+    /// The poller stops crediting time to nothing on inactivity, so a meeting
+    /// or a long think doesn't get dropped; the widget shows a lock badge.
+    pub is_idle_locked: bool,
     pub segment_started_at: String,
     /// Seconds already tracked today on `project`/`activity_type` before this
     /// segment started — the widget adds this to its own live count so
