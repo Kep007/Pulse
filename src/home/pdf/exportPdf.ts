@@ -184,14 +184,44 @@ export type ExportOutcome = "saved" | "cancelled" | "empty";
 
 export type ExportRange = { from: string; to: string };
 
-/** `range` omesso = tutto lo storico. Everything in the report derives from
- *  the daily/monthly buckets, so narrowing the fetch window is all it takes
- *  to scope the whole document. */
-export async function exportPdfReport(range?: ExportRange): Promise<ExportOutcome> {
+/** `range` null = tutto lo storico; `projectId` null = tutti i progetti. */
+export type ExportOptions = { range: ExportRange | null; projectId: number | null };
+
+/** Narrows buckets to one project: its seconds become each bucket's total.
+ *  Activity breakdowns are dropped — they aren't split per project. */
+function scopeToProject<T extends DayBucket | MonthBucket>(buckets: T[], projectId: number): T[] {
+  return buckets
+    .map((bucket) => {
+      const entry = bucket.byProject.find((item) => item.id === projectId);
+      return {
+        ...bucket,
+        totalSeconds: entry?.seconds ?? 0,
+        byProject: entry ? [entry] : [],
+        byActivity: [],
+      };
+    })
+    .filter((bucket) => bucket.totalSeconds > 0);
+}
+
+function fileSlug(name: string) {
+  return (
+    name
+      .normalize("NFD")
+      .replace(/[̀-ͯ]/g, "")
+      .replace(/[^a-zA-Z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .toLowerCase() || "progetto"
+  );
+}
+
+/** Everything in the report derives from the daily/monthly buckets, so
+ *  narrowing the fetch window (and, per project, the buckets) is all it
+ *  takes to scope the whole document. */
+export async function exportPdfReport({ range, projectId }: ExportOptions): Promise<ExportOutcome> {
   const today = isoDate(new Date());
   const from = range?.from ?? ALL_TIME_FROM;
   const to = range?.to ?? today;
-  const [daily, monthly, projects, activityTypes, activityEnabled] = await Promise.all([
+  const [allDaily, allMonthly, projects, activityTypes, activityEnabled] = await Promise.all([
     getDailySummary(from, to),
     getMonthlySummary(from, to),
     listProjects(),
@@ -199,7 +229,15 @@ export async function exportPdfReport(range?: ExportRange): Promise<ExportOutcom
     getActivityDetectionEnabled(),
   ]);
 
-  const projectTotals = sumAllTimeTotals(daily, "project").filter((entry) => entry.seconds > 0);
+  const allProjectTotals = sumAllTimeTotals(allDaily, "project").filter((entry) => entry.seconds > 0);
+  const focusProject =
+    projectId === null ? null : allProjectTotals.find((entry) => entry.id === projectId) ?? null;
+  if (projectId !== null && focusProject === null) {
+    return "empty";
+  }
+  const daily = focusProject ? scopeToProject(allDaily, focusProject.id) : allDaily;
+  const monthly = focusProject ? scopeToProject(allMonthly, focusProject.id) : allMonthly;
+  const projectTotals = focusProject ? [focusProject] : allProjectTotals;
   if (projectTotals.length === 0 || monthly.length === 0) {
     return "empty";
   }
@@ -208,14 +246,30 @@ export async function exportPdfReport(range?: ExportRange): Promise<ExportOutcom
   // costs nothing.
   const path = await save({
     title: "Esporta report PDF",
-    defaultPath: `Pulse-report-${today}.pdf`,
+    defaultPath: focusProject
+      ? `Pulse-${fileSlug(focusProject.name)}-${today}.pdf`
+      : `Pulse-report-${today}.pdf`,
     filters: [{ name: "PDF", extensions: ["pdf"] }],
   });
   if (!path) {
     return "cancelled";
   }
 
-  const doc = buildReport({ daily, monthly, projects, activityTypes, activityEnabled, projectTotals });
+  const focus = focusProject
+    ? {
+        project: focusProject,
+        allSeconds: allProjectTotals.reduce((sum, entry) => sum + entry.seconds, 0),
+      }
+    : null;
+  const doc = buildReport({
+    daily,
+    monthly,
+    projects,
+    activityTypes,
+    activityEnabled: activityEnabled && !focus,
+    projectTotals,
+    focus,
+  });
   const bytes = new Uint8Array(doc.output("arraybuffer"));
   await saveReportPdf(path, Array.from(bytes));
   return "saved";
@@ -228,10 +282,13 @@ type ReportInput = {
   activityTypes: { id: number; name: string }[];
   activityEnabled: boolean;
   projectTotals: BreakdownEntry[];
+  /** Single-project report: the project, plus every project's combined time
+   *  in the same period so its share can still be shown. */
+  focus: { project: BreakdownEntry; allSeconds: number } | null;
 };
 
 function buildReport(input: ReportInput): jsPDF {
-  const { daily, monthly, projects, activityTypes, activityEnabled, projectTotals } = input;
+  const { daily, monthly, projects, activityTypes, activityEnabled, projectTotals, focus } = input;
   const doc = new jsPDF({ unit: "mm", format: "a4" });
   let cursorY = MARGIN;
 
@@ -240,7 +297,9 @@ function buildReport(input: ReportInput): jsPDF {
   const colorOf = (entry: BreakdownEntry, palette: Map<number, string>) =>
     palette.get(entry.id) ?? entry.color ?? FALLBACK_SLICE;
 
-  const grandTotal = projectTotals.reduce((sum, entry) => sum + entry.seconds, 0);
+  const grandTotal = focus
+    ? focus.allSeconds
+    : projectTotals.reduce((sum, entry) => sum + entry.seconds, 0);
   const overall = computeEntityStats(daily, monthly, "project", null);
   const dates = daily.filter((bucket) => bucket.totalSeconds > 0).map((bucket) => bucket.date);
   const firstDate = dates.length > 0 ? dates.reduce((a, b) => (a < b ? a : b)) : null;
@@ -266,7 +325,7 @@ function buildReport(input: ReportInput): jsPDF {
   doc.setFont("helvetica", "bold");
   doc.setFontSize(21);
   doc.setTextColor(...INK);
-  doc.text("Report attività", MARGIN, cursorY + 7);
+  doc.text(focus ? "Report progetto" : "Report attività", MARGIN, cursorY + 7);
   doc.setTextColor(...ACCENT);
   doc.text("Pulse", PAGE_WIDTH - MARGIN, cursorY + 7, { align: "right" });
 
@@ -282,7 +341,8 @@ function buildReport(input: ReportInput): jsPDF {
     firstDate && lastDate
       ? `Periodo: ${formatDayMonthYearIt(firstDate)} – ${formatDayMonthYearIt(lastDate)}`
       : "Tutto lo storico";
-  doc.text(`${period}  ·  Generato il ${generatedAt}`, MARGIN, cursorY + 14);
+  const headerLine = `${period}  ·  Generato il ${generatedAt}`;
+  doc.text(focus ? `${focus.project.name}  ·  ${headerLine}` : headerLine, MARGIN, cursorY + 14);
 
   doc.setDrawColor(...BORDER);
   doc.setLineWidth(0.3);
@@ -301,7 +361,9 @@ function buildReport(input: ReportInput): jsPDF {
           ? `${formatDayMonthYearIt(firstDate)} – ${formatDayMonthYearIt(lastDate)}`
           : undefined,
     },
-    { label: "Progetti tracciati", value: String(projectTotals.length) },
+    focus
+      ? { label: "Media giornaliera", value: formatHoursMinutes(overall.avgSecondsPerActiveDay) }
+      : { label: "Progetti tracciati", value: String(projectTotals.length) },
     { label: "Giorni attivi", value: String(overall.activeDays) },
   ];
 
@@ -362,7 +424,7 @@ function buildReport(input: ReportInput): jsPDF {
   doc.setFont("helvetica", "normal");
   doc.setFontSize(8);
   doc.setTextColor(...MUTED);
-  doc.text("Progetto più impegnativo", MARGIN + 5, cursorY + 6.5);
+  doc.text(focus ? "Progetto" : "Progetto più impegnativo", MARGIN + 5, cursorY + 6.5);
 
   const [dotR, dotG, dotB] = hexToRgb(colorOf(topProject, projectColors));
   doc.setFillColor(dotR, dotG, dotB);
@@ -428,14 +490,28 @@ function buildReport(input: ReportInput): jsPDF {
   cursorY += rowHeight + 10;
 
   // ---- Ripartizione del tempo (torta progetti) ----------------------------
-  drawPieSection(
-    "Ripartizione del tempo per progetto",
-    projectTotals.map((entry) => ({
-      label: entry.name,
-      seconds: entry.seconds,
-      color: colorOf(entry, projectColors),
-    })),
-  );
+  if (focus) {
+    drawPieSection(
+      "Quota sul tempo totale",
+      [
+        {
+          label: focus.project.name,
+          seconds: focus.project.seconds,
+          color: colorOf(focus.project, projectColors),
+        },
+        { label: "Altri progetti", seconds: focus.allSeconds - focus.project.seconds, color: OTHER_COLOR },
+      ].filter((slice) => slice.seconds > 0),
+    );
+  } else {
+    drawPieSection(
+      "Ripartizione del tempo per progetto",
+      projectTotals.map((entry) => ({
+        label: entry.name,
+        seconds: entry.seconds,
+        color: colorOf(entry, projectColors),
+      })),
+    );
+  }
 
   // ---- Torta attività (solo se la rilevazione attività è in uso) ----------
   if (activityEnabled) {
@@ -507,53 +583,59 @@ function buildReport(input: ReportInput): jsPDF {
     cursorY = pieY + blockHeight + 6;
   }
 
-  // ---- Insights per progetto ----------------------------------------------
-  sectionTitle("Insights per progetto");
+  // ---- Insights per progetto (only meaningful across several projects) ---
+  if (!focus) {
+    drawProjectInsights();
+  }
 
-  const projectRows = projectTotals.map((entry) => {
-    const stats = computeEntityStats(daily, monthly, "project", entry.id);
-    return {
-      color: colorOf(entry, projectColors),
-      cells: [
-        entry.name,
-        formatHoursMinutes(stats.totalSeconds),
-        percentLabel(stats.totalSeconds, grandTotal),
-        String(stats.activeDays),
-        formatHoursMinutes(stats.avgSecondsPerActiveDay),
-        stats.bestMonth
-          ? `${capitalize(formatMonthIt(stats.bestMonth.month))} (${formatHoursMinutes(stats.bestMonth.seconds)})`
-          : "—",
-      ],
-    };
-  });
+  function drawProjectInsights() {
+    sectionTitle("Insights per progetto");
 
-  autoTable(doc, {
-    startY: cursorY,
-    margin: { left: MARGIN, right: MARGIN, bottom: PAGE_HEIGHT - CONTENT_BOTTOM },
-    head: [["Progetto", "Tempo totale", "Quota", "Giorni attivi", "Media giornaliera", "Mese più impegnativo"]],
-    body: projectRows.map((row) => row.cells),
-    styles: {
-      font: "helvetica",
-      fontSize: 8.5,
-      textColor: INK,
-      cellPadding: { top: 2.4, bottom: 2.4, left: 2.5, right: 2.5 },
-      lineColor: BORDER,
-      lineWidth: 0.15,
-    },
-    headStyles: { fillColor: [242, 244, 247], textColor: [52, 64, 84], fontStyle: "bold" },
-    alternateRowStyles: { fillColor: [252, 253, 254] },
-    columnStyles: {
-      0: { fontStyle: "bold", cellPadding: { top: 2.4, bottom: 2.4, left: 7, right: 2.5 } },
-    },
-    didDrawCell: (data) => {
-      if (data.section === "body" && data.column.index === 0) {
-        const [r, g, b] = hexToRgb(projectRows[data.row.index].color);
-        doc.setFillColor(r, g, b);
-        doc.circle(data.cell.x + 3.4, data.cell.y + data.cell.height / 2, 1.4, "F");
-      }
-    },
-  });
-  cursorY = (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 10;
+    const projectRows = projectTotals.map((entry) => {
+      const stats = computeEntityStats(daily, monthly, "project", entry.id);
+      return {
+        color: colorOf(entry, projectColors),
+        cells: [
+          entry.name,
+          formatHoursMinutes(stats.totalSeconds),
+          percentLabel(stats.totalSeconds, grandTotal),
+          String(stats.activeDays),
+          formatHoursMinutes(stats.avgSecondsPerActiveDay),
+          stats.bestMonth
+            ? `${capitalize(formatMonthIt(stats.bestMonth.month))} (${formatHoursMinutes(stats.bestMonth.seconds)})`
+            : "—",
+        ],
+      };
+    });
+
+    autoTable(doc, {
+      startY: cursorY,
+      margin: { left: MARGIN, right: MARGIN, bottom: PAGE_HEIGHT - CONTENT_BOTTOM },
+      head: [["Progetto", "Tempo totale", "Quota", "Giorni attivi", "Media giornaliera", "Mese più impegnativo"]],
+      body: projectRows.map((row) => row.cells),
+      styles: {
+        font: "helvetica",
+        fontSize: 8.5,
+        textColor: INK,
+        cellPadding: { top: 2.4, bottom: 2.4, left: 2.5, right: 2.5 },
+        lineColor: BORDER,
+        lineWidth: 0.15,
+      },
+      headStyles: { fillColor: [242, 244, 247], textColor: [52, 64, 84], fontStyle: "bold" },
+      alternateRowStyles: { fillColor: [252, 253, 254] },
+      columnStyles: {
+        0: { fontStyle: "bold", cellPadding: { top: 2.4, bottom: 2.4, left: 7, right: 2.5 } },
+      },
+      didDrawCell: (data) => {
+        if (data.section === "body" && data.column.index === 0) {
+          const [r, g, b] = hexToRgb(projectRows[data.row.index].color);
+          doc.setFillColor(r, g, b);
+          doc.circle(data.cell.x + 3.4, data.cell.y + data.cell.height / 2, 1.4, "F");
+        }
+      },
+    });
+    cursorY = (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 10;
+  }
 
   // ---- Insights mensili -----------------------------------------------------
   sectionTitle("Insights mensili");
@@ -578,12 +660,15 @@ function buildReport(input: ReportInput): jsPDF {
       delta = `${rounded > 0 ? "+" : ""}${rounded}%`;
     }
     const top = topEntryOf(bucket.byProject);
+    const activeDays = daily.filter(
+      (day) => day.date.startsWith(bucket.month) && day.totalSeconds > 0,
+    ).length;
     return {
       deltaSign,
       cells: [
         capitalize(formatMonthIt(bucket.month)),
         formatHoursMinutes(bucket.totalSeconds),
-        top ? `${top.name} (${formatHoursMinutes(top.seconds)})` : "—",
+        focus ? String(activeDays) : top ? `${top.name} (${formatHoursMinutes(top.seconds)})` : "—",
         delta,
       ],
     };
@@ -593,7 +678,7 @@ function buildReport(input: ReportInput): jsPDF {
   autoTable(doc, {
     startY: cursorY,
     margin: { left: MARGIN, right: MARGIN, bottom: PAGE_HEIGHT - CONTENT_BOTTOM },
-    head: [["Mese", "Tempo totale", "Progetto principale", "Vs mese precedente"]],
+    head: [["Mese", "Tempo totale", focus ? "Giorni attivi" : "Progetto principale", "Vs mese precedente"]],
     body: monthRows.map((row) => row.cells),
     styles: {
       font: "helvetica",

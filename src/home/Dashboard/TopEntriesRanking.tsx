@@ -16,6 +16,9 @@ type TopEntriesRankingProps = {
   // All-time month buckets, used to build each bar's monthly-recap tooltip.
   monthlyBuckets: MonthBucket[];
   metric: BreakdownMetric;
+  // The dashboard filter's entity — emphasized, and appended below the top
+  // rows when it ranks too low to make the cut.
+  highlightId?: number | null;
   emptyLabel: string;
 };
 
@@ -48,9 +51,15 @@ export function TopEntriesRanking({
   entries,
   monthlyBuckets,
   metric,
+  highlightId = null,
   emptyLabel,
 }: TopEntriesRankingProps) {
-  const sorted = [...entries].sort((a, b) => b.seconds - a.seconds).slice(0, MAX_ROWS);
+  const ranked = [...entries].sort((a, b) => b.seconds - a.seconds);
+  const sorted = ranked.slice(0, MAX_ROWS);
+  const highlightRank = highlightId === null ? -1 : ranked.findIndex((entry) => entry.id === highlightId);
+  if (highlightRank >= MAX_ROWS) {
+    sorted.push(ranked[highlightRank]);
+  }
   const max = sorted[0]?.seconds ?? 0;
 
   if (sorted.length === 0) {
@@ -58,12 +67,19 @@ export function TopEntriesRanking({
   }
 
   return (
-    <ol className="ranking-list">
+    <ol className={highlightId === null ? "ranking-list" : "ranking-list has-highlight"}>
       {sorted.map((entry) => {
         const ratio = max > 0 ? entry.seconds / max : 0;
+        const rank = ranked.indexOf(entry) + 1;
         return (
-          <li className="ranking-row" key={entry.id}>
-            <span className="ranking-name">{entry.name}</span>
+          <li
+            className={entry.id === highlightId ? "ranking-row highlighted" : "ranking-row"}
+            key={entry.id}
+          >
+            <span className="ranking-name">
+              {rank > MAX_ROWS ? `${rank}. ` : ""}
+              {entry.name}
+            </span>
             <TooltipTrigger
               className="ranking-track"
               ariaLabel={`${entry.name}: ${formatHoursMinutes(entry.seconds)} totali, riepilogo degli ultimi mesi`}

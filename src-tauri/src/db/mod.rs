@@ -17,6 +17,7 @@ const MIGRATIONS: &[(&str, &str)] = &[
         "0004_project_sort_order",
         include_str!("migrations/0004_project_sort_order.sql"),
     ),
+    ("0005_compaction", include_str!("migrations/0005_compaction.sql")),
 ];
 
 /// Single folder all of Pulse's per-user data (database, settings) lives in
@@ -529,6 +530,182 @@ pub fn segments_between(
     Ok(rows)
 }
 
+/// History older than this many days is compacted by `compact_history`.
+pub const COMPACT_AFTER_DAYS: i64 = 90;
+/// Same as the Daily timeline's MERGE_GAP_MINUTES: segments this close are
+/// already drawn as one block, so merging them changes nothing on screen.
+const COMPACT_MERGE_GAP_SECS: i64 = 60;
+const COMPACTED_UNTIL_KEY: &str = "compacted_until";
+
+#[derive(Debug, Default, PartialEq)]
+pub struct CompactionReport {
+    pub stripped: usize,
+    pub merged: usize,
+}
+
+struct MergeGroup {
+    id: i64,
+    project_id: Option<i64>,
+    activity_type_id: Option<i64>,
+    day: String,
+    ended_at: String,
+    ended: DateTime<Utc>,
+    duration_seconds: i64,
+    changed: bool,
+}
+
+/// Shrinks closed history older than COMPACT_AFTER_DAYS without changing any
+/// total the app shows:
+/// - clears `window_title`/`process_name` (written for diagnostics, never
+///   read back anywhere) — the bulk of each row's size;
+/// - merges back-to-back segments of the same project + activity on the same
+///   (UTC) day into one row whose `duration_seconds` is their exact sum, so
+///   every daily/monthly/per-project figure stays identical to the second.
+///
+/// Progress is remembered in `app_meta`, so each run only looks at days that
+/// crossed the cutoff since the previous one. Before the very first run that
+/// actually has work to do, a full copy of the database is written to
+/// `backup_path` (if given and not already there).
+pub fn compact_history(
+    conn: &Connection,
+    now: DateTime<Utc>,
+    backup_path: Option<&std::path::Path>,
+) -> rusqlite::Result<CompactionReport> {
+    let cutoff = (now - chrono::Duration::days(COMPACT_AFTER_DAYS))
+        .date_naive()
+        .and_hms_opt(0, 0, 0)
+        .expect("midnight is always valid")
+        .and_utc()
+        .to_rfc3339();
+    let from: String = conn
+        .query_row(
+            "SELECT value FROM app_meta WHERE key = ?1",
+            [COMPACTED_UNTIL_KEY],
+            |row| row.get(0),
+        )
+        .optional()?
+        .unwrap_or_default();
+    if from >= cutoff {
+        return Ok(CompactionReport::default());
+    }
+
+    let has_work: bool = conn.query_row(
+        "SELECT EXISTS(SELECT 1 FROM time_entries WHERE started_at >= ?1 AND started_at < ?2)",
+        [&from, &cutoff],
+        |row| row.get(0),
+    )?;
+    if has_work {
+        if let Some(path) = backup_path {
+            if !path.exists() {
+                conn.execute("VACUUM INTO ?1", [path.to_string_lossy()])?;
+            }
+        }
+    }
+
+    let tx = conn.unchecked_transaction()?;
+    let stripped = tx.execute(
+        "UPDATE time_entries SET window_title = NULL, process_name = NULL
+         WHERE started_at >= ?1 AND started_at < ?2 AND ended_at IS NOT NULL
+           AND (window_title IS NOT NULL OR process_name IS NOT NULL)",
+        [&from, &cutoff],
+    )?;
+
+    let rows: Vec<(i64, Option<i64>, Option<i64>, String, String, i64)> = {
+        let mut stmt = tx.prepare(
+            "SELECT id, project_id, activity_type_id, started_at, ended_at, duration_seconds
+             FROM time_entries
+             WHERE started_at >= ?1 AND started_at < ?2
+               AND ended_at IS NOT NULL AND duration_seconds IS NOT NULL
+             ORDER BY started_at, id",
+        )?;
+        let rows = stmt
+            .query_map([&from, &cutoff], |row| {
+                Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?, row.get(5)?))
+            })?
+            .collect::<rusqlite::Result<_>>()?;
+        rows
+    };
+
+    let parse = |value: &str| {
+        DateTime::parse_from_rfc3339(value)
+            .ok()
+            .map(|dt| dt.with_timezone(&Utc))
+    };
+    let mut merged = 0;
+    let mut group: Option<MergeGroup> = None;
+    for (id, project_id, activity_type_id, started_at, ended_at, duration_seconds) in rows {
+        let day = started_at.get(..10).unwrap_or_default().to_string();
+        let started = parse(&started_at);
+        let ended = parse(&ended_at);
+
+        if let (Some(current), Some(started), Some(ended)) = (group.as_mut(), started, ended) {
+            let gap = (started - current.ended).num_seconds();
+            if current.project_id == project_id
+                && current.activity_type_id == activity_type_id
+                && current.day == day
+                && (0..=COMPACT_MERGE_GAP_SECS).contains(&gap)
+            {
+                tx.execute("DELETE FROM time_entries WHERE id = ?1", [id])?;
+                current.duration_seconds += duration_seconds;
+                if ended > current.ended {
+                    current.ended = ended;
+                    current.ended_at = ended_at;
+                }
+                current.changed = true;
+                merged += 1;
+                continue;
+            }
+        }
+
+        if let Some(done) = group.take() {
+            flush_merge_group(&tx, &done)?;
+        }
+        group = ended.map(|ended| MergeGroup {
+            id,
+            project_id,
+            activity_type_id,
+            day,
+            ended_at,
+            ended,
+            duration_seconds,
+            changed: false,
+        });
+    }
+    if let Some(done) = group.take() {
+        flush_merge_group(&tx, &done)?;
+    }
+
+    tx.execute(
+        "INSERT INTO app_meta (key, value) VALUES (?1, ?2)
+         ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+        [COMPACTED_UNTIL_KEY, &cutoff],
+    )?;
+    tx.commit()?;
+
+    // Stripped text and deleted rows leave free pages behind; only rebuild the
+    // file when that's a meaningful share of it, so routine daily runs stay
+    // instant.
+    if stripped + merged > 0 {
+        let free_pages: i64 = conn.query_row("PRAGMA freelist_count", [], |row| row.get(0))?;
+        let total_pages: i64 = conn.query_row("PRAGMA page_count", [], |row| row.get(0))?;
+        if free_pages * 10 > total_pages {
+            conn.execute("VACUUM", [])?;
+        }
+    }
+
+    Ok(CompactionReport { stripped, merged })
+}
+
+fn flush_merge_group(conn: &Connection, group: &MergeGroup) -> rusqlite::Result<()> {
+    if group.changed {
+        conn.execute(
+            "UPDATE time_entries SET ended_at = ?1, duration_seconds = ?2 WHERE id = ?3",
+            rusqlite::params![group.ended_at, group.duration_seconds, group.id],
+        )?;
+    }
+    Ok(())
+}
+
 pub fn reset_all_data(conn: &Connection, at: DateTime<Utc>) -> rusqlite::Result<()> {
     conn.execute("DELETE FROM time_entries", [])?;
     conn.execute(
@@ -561,6 +738,133 @@ mod tests {
         .unwrap()
         .collect::<rusqlite::Result<_>>()
         .unwrap()
+    }
+
+    fn insert_closed(
+        conn: &Connection,
+        project_id: Option<i64>,
+        started: DateTime<Utc>,
+        seconds: i64,
+        title: Option<&str>,
+    ) {
+        conn.execute(
+            "INSERT INTO time_entries
+                (project_id, source, started_at, ended_at, duration_seconds, window_title, process_name)
+             VALUES (?1, 'auto', ?2, ?3, ?4, ?5, 'chrome.exe')",
+            rusqlite::params![
+                project_id,
+                started.to_rfc3339(),
+                (started + Duration::seconds(seconds)).to_rfc3339(),
+                seconds,
+                title,
+            ],
+        )
+        .unwrap();
+    }
+
+    fn totals_by_day_and_project(conn: &Connection) -> Vec<(String, Option<i64>, i64)> {
+        let mut stmt = conn
+            .prepare(
+                "SELECT substr(started_at, 1, 10), project_id, SUM(duration_seconds)
+                 FROM time_entries GROUP BY 1, 2 ORDER BY 1, 2",
+            )
+            .unwrap();
+        stmt.query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))
+            .unwrap()
+            .collect::<rusqlite::Result<_>>()
+            .unwrap()
+    }
+
+    fn row_count(conn: &Connection) -> i64 {
+        conn.query_row("SELECT COUNT(*) FROM time_entries", [], |row| row.get(0))
+            .unwrap()
+    }
+
+    #[test]
+    fn compaction_keeps_every_total_and_leaves_recent_history_alone() {
+        use chrono::TimeZone;
+        let conn = test_conn();
+        let now = Utc.with_ymd_and_hms(2026, 9, 28, 12, 0, 0).unwrap();
+        let old_day = Utc.with_ymd_and_hms(2026, 3, 2, 9, 0, 0).unwrap();
+
+        // Back-to-back project 1 (merge), a >60s gap (kept apart), another
+        // project in between (kept apart), and a late-evening row on the
+        // next UTC day (never merged across days).
+        insert_closed(&conn, Some(1), old_day, 600, Some("Figma – Cliente A"));
+        insert_closed(&conn, Some(1), old_day + Duration::seconds(630), 300, Some("Figma"));
+        insert_closed(&conn, Some(1), old_day + Duration::seconds(1000), 200, None);
+        insert_closed(&conn, Some(2), old_day + Duration::seconds(1200), 100, Some("Mail"));
+        insert_closed(&conn, Some(1), old_day + Duration::seconds(1300), 50, None);
+        let late = Utc.with_ymd_and_hms(2026, 3, 2, 23, 59, 30).unwrap();
+        insert_closed(&conn, Some(3), late, 30, None);
+        insert_closed(&conn, Some(3), late + Duration::seconds(40), 30, None);
+        let recent = now - Duration::days(3);
+        insert_closed(&conn, Some(1), recent, 100, Some("recent title"));
+        insert_closed(&conn, Some(1), recent + Duration::seconds(100), 100, Some("recent title"));
+
+        let before = totals_by_day_and_project(&conn);
+        let report = compact_history(&conn, now, None).unwrap();
+        let after = totals_by_day_and_project(&conn);
+
+        assert_eq!(before, after, "compaction must never change a total");
+        assert_eq!(report.merged, 1, "only the first back-to-back pair merges");
+        assert_eq!(report.stripped, 7, "every old row carried a process name");
+        assert_eq!(row_count(&conn), 8);
+
+        let old_titles: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM time_entries WHERE started_at < ?1 AND window_title IS NOT NULL",
+                [(now - Duration::days(COMPACT_AFTER_DAYS)).to_rfc3339()],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(old_titles, 0);
+        let recent_titles: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM time_entries WHERE window_title = 'recent title'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(recent_titles, 2, "recent history is untouched");
+
+        let merged_end: String = conn
+            .query_row(
+                "SELECT ended_at FROM time_entries WHERE started_at = ?1",
+                [old_day.to_rfc3339()],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(merged_end, (old_day + Duration::seconds(930)).to_rfc3339());
+
+        assert_eq!(compact_history(&conn, now, None).unwrap(), CompactionReport::default());
+    }
+
+    #[test]
+    fn compaction_backs_up_the_database_before_changing_anything() {
+        use chrono::TimeZone;
+        let dir = std::env::temp_dir().join(format!("pulse-compact-test-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let db_path = dir.join("pulse.db");
+        let backup = dir.join("backup.db");
+        let _ = std::fs::remove_file(&db_path);
+        let _ = std::fs::remove_file(&backup);
+
+        let conn = Connection::open(&db_path).unwrap();
+        run_migrations(&conn).unwrap();
+        let now = Utc.with_ymd_and_hms(2026, 9, 28, 12, 0, 0).unwrap();
+        let old = now - Duration::days(200);
+        insert_closed(&conn, Some(1), old, 60, Some("a"));
+        insert_closed(&conn, Some(1), old + Duration::seconds(60), 60, Some("b"));
+
+        compact_history(&conn, now, Some(&backup)).unwrap();
+
+        let copy = Connection::open(&backup).unwrap();
+        assert_eq!(row_count(&copy), 2, "backup holds the pre-compaction rows");
+        assert_eq!(row_count(&conn), 1);
+        drop(copy);
+        drop(conn);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

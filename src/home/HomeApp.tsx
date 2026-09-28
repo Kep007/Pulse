@@ -2,7 +2,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useEffect, useRef, useState } from "react";
 import { IconClose, IconMinimize, IconPdf } from "../components/icons";
 import { DashboardView } from "./Dashboard/DashboardView";
-import type { ExportRange } from "./pdf/exportPdf";
+import type { ExportOptions } from "./pdf/exportPdf";
 import { ExportPdfDialog } from "./pdf/ExportPdfDialog";
 import { ProjectsView } from "./Projects/ProjectsView";
 import { SettingsView } from "./Settings/SettingsView";
@@ -41,7 +41,7 @@ export function HomeApp() {
     noteTimer.current = window.setTimeout(() => setExportNote(null), 4000);
   }
 
-  async function handleExportPdf(range: ExportRange | null) {
+  async function handleExportPdf(options: ExportOptions) {
     setExportDialogOpen(false);
     if (exporting) {
       return;
@@ -53,9 +53,13 @@ export function HomeApp() {
       // window to parse them at startup. (The type-only import above is
       // erased at compile time and doesn't pull the module in.)
       const { exportPdfReport } = await import("./pdf/exportPdf");
-      const outcome = await exportPdfReport(range ?? undefined);
+      const outcome = await exportPdfReport(options);
       if (outcome === "empty") {
-        showNote("Nessun dato da esportare nel periodo scelto.");
+        showNote(
+          options.projectId === null
+            ? "Nessun dato da esportare nel periodo scelto."
+            : "Nessun dato per questo progetto nel periodo scelto.",
+        );
       }
     } catch (error) {
       console.error("Esportazione PDF non riuscita", error);
@@ -133,7 +137,7 @@ export function HomeApp() {
       {exportDialogOpen && (
         <ExportPdfDialog
           onCancel={() => setExportDialogOpen(false)}
-          onConfirm={(range) => void handleExportPdf(range)}
+          onConfirm={(options) => void handleExportPdf(options)}
         />
       )}
     </div>

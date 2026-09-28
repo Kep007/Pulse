@@ -22,31 +22,57 @@ const MONTHLY_MONTHS = 12;
 // that actually have data, so this is just a safe lower bound, not a cost.
 const ALL_TIME_FROM = "2000-01-01";
 
+const FILTER_STORAGE_KEY = "pulse.dashboardFilter";
+
 function isoDate(date: Date) {
   return date.toISOString().slice(0, 10);
 }
 
+export function loadSavedFilter(): { metric: BreakdownMetric; filterId: number | null } {
+  try {
+    const saved = JSON.parse(localStorage.getItem(FILTER_STORAGE_KEY) ?? "null");
+    if (saved && (saved.metric === "project" || saved.metric === "activity")) {
+      return {
+        metric: saved.metric,
+        filterId: typeof saved.filterId === "number" ? saved.filterId : null,
+      };
+    }
+  } catch {
+    // Fall through to the default.
+  }
+  return { metric: "project", filterId: null };
+}
+
 export function DashboardView() {
-  const [dailyBuckets, setDailyBuckets] = useState<DayBucket[]>([]);
-  const [monthlyBuckets, setMonthlyBuckets] = useState<MonthBucket[]>([]);
   const [allTimeDailyBuckets, setAllTimeDailyBuckets] = useState<DayBucket[]>([]);
   const [allTimeMonthlyBuckets, setAllTimeMonthlyBuckets] = useState<MonthBucket[]>([]);
   const projects = useProjects();
   const [activityTypes, setActivityTypes] = useState<ActivityTypeDto[]>([]);
   const [activityEnabled, setActivityEnabled] = useState(false);
 
-  // Each card owns its own metric + filter — they're independent views, so
-  // e.g. the daily heatmap can be filtered to one project while the monthly
-  // chart still shows every activity.
-  const [dailyMetric, setDailyMetric] = useState<BreakdownMetric>("project");
-  const [dailyFilterId, setDailyFilterId] = useState<number | null>(null);
-  const [monthlyMetric, setMonthlyMetric] = useState<BreakdownMetric>("project");
-  const [monthlyFilterId, setMonthlyFilterId] = useState<number | null>(null);
-  const [breakdownMetric, setBreakdownMetric] = useState<BreakdownMetric>("project");
-  const [rankingMetric, setRankingMetric] = useState<BreakdownMetric>("project");
-  const [statsMetric, setStatsMetric] = useState<BreakdownMetric>("project");
-  const [statsFilterId, setStatsFilterId] = useState<number | null>(null);
+  // One filter for the whole dashboard, picked once at the top: every card
+  // then answers "how is this project (or activity) doing", instead of each
+  // card carrying its own dropdown that had to be set again card by card.
+  const [metric, setMetric] = useState<BreakdownMetric>(() => loadSavedFilter().metric);
+  const [filterId, setFilterId] = useState<number | null>(() => loadSavedFilter().filterId);
   const [timelineDate, setTimelineDate] = useState(() => new Date());
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(FILTER_STORAGE_KEY, JSON.stringify({ metric, filterId }));
+    } catch {
+      // Storage unavailable: the filter just won't survive a reopen.
+    }
+  }, [metric, filterId]);
+
+  // An archived project (or a stale saved id) must not leave every card
+  // silently filtered to something the dropdown can no longer show.
+  useEffect(() => {
+    const options = metric === "project" ? projects : activityTypes;
+    if (filterId !== null && options.length > 0 && !options.some((option) => option.id === filterId)) {
+      setFilterId(null);
+    }
+  }, [metric, filterId, projects, activityTypes]);
 
   function shiftTimelineDay(deltaDays: number) {
     setTimelineDate((current) => {
@@ -58,51 +84,71 @@ export function DashboardView() {
 
   useEffect(() => {
     let cancelled = false;
+    listActivityTypes().then((value) => !cancelled && setActivityTypes(value));
+    getActivityDetectionEnabled().then((value) => !cancelled && setActivityEnabled(value));
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
+  useEffect(() => {
+    let cancelled = false;
+    let debounceTimer: number | null = null;
+
+    // Only the two all-time summaries are fetched: the heatmap's and the
+    // monthly chart's shorter ranges are slices of them (see below), so
+    // there's no reason to ask SQLite for the same rows twice.
     function loadAll() {
-      const to = new Date();
-      // Matches Heatmap's own month-block range: the 1st of the month
-      // (MONTHS_BACK - 1) months ago, so fetched data covers exactly what's
-      // rendered (that range shifts forward on its own as months pass).
-      const from = new Date(to);
-      from.setUTCDate(1);
-      from.setUTCMonth(from.getUTCMonth() - (MONTHS_BACK - 1));
-      const guard = <T,>(set: (value: T) => void) => (value: T) => {
-        if (!cancelled) {
-          set(value);
-        }
-      };
-      getDailySummary(isoDate(from), isoDate(to)).then(guard(setDailyBuckets));
-
-      const monthlyFrom = new Date(to);
-      monthlyFrom.setUTCMonth(monthlyFrom.getUTCMonth() - (MONTHLY_MONTHS - 1));
-      getMonthlySummary(isoDate(monthlyFrom), isoDate(to)).then(guard(setMonthlyBuckets));
-
-      const toIso = isoDate(to);
-      getDailySummary(ALL_TIME_FROM, toIso).then(guard(setAllTimeDailyBuckets));
-      getMonthlySummary(ALL_TIME_FROM, toIso).then(guard(setAllTimeMonthlyBuckets));
-
-      listActivityTypes().then(guard(setActivityTypes));
-      getActivityDetectionEnabled().then(guard(setActivityEnabled));
+      const toIso = isoDate(new Date());
+      getDailySummary(ALL_TIME_FROM, toIso).then((value) => !cancelled && setAllTimeDailyBuckets(value));
+      getMonthlySummary(ALL_TIME_FROM, toIso).then(
+        (value) => !cancelled && setAllTimeMonthlyBuckets(value),
+      );
     }
 
     loadAll();
 
-    // Live refresh while the window is open: every tracked-state transition
-    // (project switch, pause, confirm...) re-runs the summaries, plus a slow
-    // timer so the open segment's growing duration keeps flowing into
-    // today's numbers even when nothing switches for a while. Both are
-    // cheap now that the summaries aggregate inside SQLite, and both die
-    // with this window — it's destroyed on close, not hidden.
-    const unlistenPromise = listen("state-changed", () => loadAll());
+    // Live refresh while the window is open: tracked-state transitions
+    // (project switch, pause, confirm...) re-run the summaries — coalesced,
+    // since one user action often emits several state-changed events in a
+    // row — plus a slow timer so the open segment's growing duration keeps
+    // flowing into today's numbers. Both die with this window.
+    const unlistenPromise = listen("state-changed", () => {
+      if (debounceTimer !== null) {
+        window.clearTimeout(debounceTimer);
+      }
+      debounceTimer = window.setTimeout(loadAll, 400);
+    });
     const refreshTimer = window.setInterval(loadAll, 60_000);
 
     return () => {
       cancelled = true;
       window.clearInterval(refreshTimer);
+      if (debounceTimer !== null) {
+        window.clearTimeout(debounceTimer);
+      }
       void unlistenPromise.then((unlisten) => unlisten());
     };
   }, []);
+
+  // Matches Heatmap's own month-block range: the 1st of the month
+  // (MONTHS_BACK - 1) months ago; the monthly chart shows the last
+  // MONTHLY_MONTHS whole months. Both shift forward on their own as months
+  // pass, since they're recomputed from today on every data refresh.
+  const dailyBuckets = useMemo(() => {
+    const from = new Date();
+    from.setUTCDate(1);
+    from.setUTCMonth(from.getUTCMonth() - (MONTHS_BACK - 1));
+    const fromIso = isoDate(from);
+    return allTimeDailyBuckets.filter((bucket) => bucket.date >= fromIso);
+  }, [allTimeDailyBuckets]);
+  const monthlyBuckets = useMemo(() => {
+    const from = new Date();
+    from.setUTCDate(1);
+    from.setUTCMonth(from.getUTCMonth() - (MONTHLY_MONTHS - 1));
+    const fromMonth = isoDate(from).slice(0, 7);
+    return allTimeMonthlyBuckets.filter((bucket) => bucket.month >= fromMonth);
+  }, [allTimeMonthlyBuckets]);
 
   // Color follows the entity (its catalog id), never its current rank in a
   // sorted-by-value list — otherwise the same project's slice would repaint
@@ -115,49 +161,70 @@ export function DashboardView() {
     [activityTypes],
   );
 
-  const breakdownEntries = useMemo(
-    () => sumAllTimeTotals(allTimeDailyBuckets, breakdownMetric),
-    [allTimeDailyBuckets, breakdownMetric],
+  const allEntries = useMemo(
+    () => sumAllTimeTotals(allTimeDailyBuckets, metric),
+    [allTimeDailyBuckets, metric],
   );
-  const rankingEntries = useMemo(
-    () => sumAllTimeTotals(allTimeDailyBuckets, rankingMetric),
-    [allTimeDailyBuckets, rankingMetric],
-  );
+  const colorById = metric === "project" ? projectColors : activityColors;
+  // A breakdown of a single entity alone would always read 100% — with a
+  // filter set it becomes "this one vs. everything else" instead.
+  const breakdownEntries = useMemo(() => {
+    if (filterId === null) {
+      return allEntries;
+    }
+    const selected = allEntries.find((entry) => entry.id === filterId);
+    if (!selected) {
+      return [];
+    }
+    const restSeconds = allEntries.reduce(
+      (sum, entry) => (entry.id === filterId ? sum : sum + entry.seconds),
+      0,
+    );
+    return restSeconds > 0
+      ? [selected, { id: -2, name: "Tutto il resto", color: null, seconds: restSeconds }]
+      : [selected];
+  }, [allEntries, filterId]);
   const entityStats = useMemo(
-    () => computeEntityStats(allTimeDailyBuckets, allTimeMonthlyBuckets, statsMetric, statsFilterId),
-    [allTimeDailyBuckets, allTimeMonthlyBuckets, statsMetric, statsFilterId],
+    () => computeEntityStats(allTimeDailyBuckets, allTimeMonthlyBuckets, metric, filterId),
+    [allTimeDailyBuckets, allTimeMonthlyBuckets, metric, filterId],
   );
+  const noDataLabel =
+    metric === "project" ? "Nessun dato per questo progetto." : "Nessun dato per questa attività.";
+  const nothingTrackedLabel =
+    metric === "project" ? "Nessun progetto tracciato ancora." : "Nessuna attività tracciata ancora.";
 
   return (
     <div className="dashboard-view">
+      <div className="dashboard-filter-bar">
+        <span className="dashboard-filter-label">
+          {metric === "project" ? "Mostra dati di" : "Mostra dati dell'attività"}
+        </span>
+        <DashboardCardControls
+          metric={metric}
+          onMetricChange={setMetric}
+          filterId={filterId}
+          onFilterChange={setFilterId}
+          projects={projects}
+          activityTypes={activityTypes}
+          filterMode="all"
+          activityEnabled={activityEnabled}
+        />
+      </div>
+
       <section className="dashboard-card">
         <div className="dashboard-card-header">
           <DashboardCardTitle
             title="Riepilogo"
-            info="Statistiche calcolate su tutto lo storico registrato per il progetto o l'attività selezionata, non solo sul periodo mostrato negli altri grafici: media di tempo nei soli giorni in cui hai lavorato su questa voce, tempo totale, il mese e il giorno della settimana in cui vi hai dedicato più tempo in assoluto. Passa il mouse su tempo totale, mese e giorno più impegnativo per vederne il dettaglio."
-          />
-          <DashboardCardControls
-            metric={statsMetric}
-            onMetricChange={setStatsMetric}
-            filterId={statsFilterId}
-            onFilterChange={setStatsFilterId}
-            projects={projects}
-            activityTypes={activityTypes}
-            filterMode="all"
-            activityEnabled={activityEnabled}
+            info="Statistiche calcolate su tutto lo storico registrato per il progetto o l'attività selezionata in alto, non solo sul periodo mostrato negli altri grafici: media di tempo nei soli giorni in cui hai lavorato su questa voce, tempo totale, il mese e il giorno della settimana in cui vi hai dedicato più tempo in assoluto. Passa il mouse su tempo totale, mese e giorno più impegnativo per vederne il dettaglio."
           />
         </div>
         <EntityStatsCard
           stats={entityStats}
           dailyBuckets={allTimeDailyBuckets}
           monthlyBuckets={allTimeMonthlyBuckets}
-          metric={statsMetric}
-          filterId={statsFilterId}
-          emptyLabel={
-            statsMetric === "project"
-              ? "Nessun dato per questo progetto."
-              : "Nessun dato per questa attività."
-          }
+          metric={metric}
+          filterId={filterId}
+          emptyLabel={noDataLabel}
         />
       </section>
 
@@ -188,30 +255,24 @@ export function DashboardView() {
             </button>
           </div>
         </div>
-        <DailyTimeline date={timelineDate} projects={projects} />
+        <DailyTimeline
+          date={timelineDate}
+          projects={projects}
+          focusProjectId={metric === "project" ? filterId : null}
+        />
       </section>
 
       <section className="dashboard-card">
         <div className="dashboard-card-header">
           <DashboardCardTitle
             title="Ripartizione del tempo"
-            info="Percentuale di tempo dedicato a ciascun progetto (o attività) rispetto al totale, calcolata su tutto lo storico registrato. Oltre le prime 8 voci, il resto viene raggruppato in «Altro»."
-          />
-          <DashboardCardControls
-            metric={breakdownMetric}
-            onMetricChange={setBreakdownMetric}
-            projects={projects}
-            activityTypes={activityTypes}
-            filterMode="none"
-            activityEnabled={activityEnabled}
+            info="Percentuale di tempo dedicato a ciascun progetto (o attività) rispetto al totale, calcolata su tutto lo storico registrato. Con un filtro attivo mostra quanto pesa la voce selezionata rispetto a tutto il resto. Oltre le prime 8 voci, il resto viene raggruppato in «Altro»."
           />
         </div>
         <TimeBreakdownBar
           entries={breakdownEntries}
-          colorById={breakdownMetric === "project" ? projectColors : activityColors}
-          emptyLabel={
-            breakdownMetric === "project" ? "Nessun progetto tracciato ancora." : "Nessuna attività tracciata ancora."
-          }
+          colorById={colorById}
+          emptyLabel={filterId === null ? nothingTrackedLabel : noDataLabel}
         />
       </section>
 
@@ -219,24 +280,15 @@ export function DashboardView() {
         <div className="dashboard-card-header">
           <DashboardCardTitle
             title="Classifica"
-            info="Progetti (o attività) ordinati per tempo totale dedicato, calcolato su tutto lo storico registrato — non solo sul periodo recente."
-          />
-          <DashboardCardControls
-            metric={rankingMetric}
-            onMetricChange={setRankingMetric}
-            projects={projects}
-            activityTypes={activityTypes}
-            filterMode="none"
-            activityEnabled={activityEnabled}
+            info="Progetti (o attività) ordinati per tempo totale dedicato, calcolato su tutto lo storico registrato — non solo sul periodo recente. Con un filtro attivo la voce selezionata viene evidenziata, anche se fuori dalle prime posizioni."
           />
         </div>
         <TopEntriesRanking
-          entries={rankingEntries}
+          entries={allEntries}
           monthlyBuckets={allTimeMonthlyBuckets}
-          metric={rankingMetric}
-          emptyLabel={
-            rankingMetric === "project" ? "Nessun progetto tracciato ancora." : "Nessuna attività tracciata ancora."
-          }
+          metric={metric}
+          highlightId={filterId}
+          emptyLabel={nothingTrackedLabel}
         />
       </section>
 
@@ -244,38 +296,20 @@ export function DashboardView() {
         <div className="dashboard-card-header">
           <DashboardCardTitle
             title="Storico giornaliero"
-            info="Un quadratino per ogni giorno, colorato in base a quanto tempo hai tracciato quel giorno — più scuro significa più tempo. Puoi filtrare per un singolo progetto o attività, oppure vedere il totale di tutti."
-          />
-          <DashboardCardControls
-            metric={dailyMetric}
-            onMetricChange={setDailyMetric}
-            filterId={dailyFilterId}
-            onFilterChange={setDailyFilterId}
-            projects={projects}
-            activityTypes={activityTypes}
-            activityEnabled={activityEnabled}
+            info="Un quadratino per ogni giorno, colorato in base a quanto tempo hai tracciato quel giorno — più scuro significa più tempo. Segue il filtro selezionato in alto."
           />
         </div>
-        <Heatmap buckets={dailyBuckets} metric={dailyMetric} filterId={dailyFilterId} />
+        <Heatmap buckets={dailyBuckets} metric={metric} filterId={filterId} />
       </section>
 
       <section className="dashboard-card">
         <div className="dashboard-card-header">
           <DashboardCardTitle
             title="Storico mensile"
-            info="Tempo totale tracciato in ciascuno degli ultimi 12 mesi. Il colore di ogni barra indica quanto quel mese si avvicina al mese con più tempo registrato nel periodo mostrato."
-          />
-          <DashboardCardControls
-            metric={monthlyMetric}
-            onMetricChange={setMonthlyMetric}
-            filterId={monthlyFilterId}
-            onFilterChange={setMonthlyFilterId}
-            projects={projects}
-            activityTypes={activityTypes}
-            activityEnabled={activityEnabled}
+            info="Tempo totale tracciato in ciascuno degli ultimi 12 mesi, secondo il filtro selezionato in alto. Il colore di ogni barra indica quanto quel mese si avvicina al mese con più tempo registrato nel periodo mostrato."
           />
         </div>
-        <MonthlySummary buckets={monthlyBuckets} metric={monthlyMetric} filterId={monthlyFilterId} />
+        <MonthlySummary buckets={monthlyBuckets} metric={metric} filterId={filterId} />
       </section>
     </div>
   );

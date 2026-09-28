@@ -76,6 +76,9 @@ type LegendEntry = {
 type DailyTimelineProps = {
   date: Date;
   projects: ProjectDto[];
+  // The dashboard's project filter: other projects' blocks stay visible for
+  // context (when did I switch away) but fade back.
+  focusProjectId?: number | null;
 };
 
 // A sequence of project sessions across one day, positioned by real
@@ -86,7 +89,7 @@ type DailyTimelineProps = {
 // unrelated dimensions into one axis would just be two overlapping stories.
 // Day navigation lives in the caller's card header, not here — this
 // component just renders whatever `date` it's given.
-export function DailyTimeline({ date, projects }: DailyTimelineProps) {
+export function DailyTimeline({ date, projects, focusProjectId = null }: DailyTimelineProps) {
   const [segments, setSegments] = useState<SegmentDto[]>([]);
 
   useEffect(() => {
@@ -129,7 +132,17 @@ export function DailyTimeline({ date, projects }: DailyTimelineProps) {
       .map((segment, index): Block => {
         const start = new Date(segment.startedAt);
         const startMinutes = start.getHours() * 60 + start.getMinutes() + start.getSeconds() / 60;
-        const endMinutes = Math.min(startMinutes + segment.durationSeconds / 60, DAY_MINUTES);
+        // Wall-clock span when the segment is closed: compacted history
+        // (db::compact_history) folds back-to-back segments into one row
+        // whose duration is their sum, so start + duration would end the
+        // block a few seconds early.
+        const spanSeconds = segment.endedAt
+          ? Math.max(
+              segment.durationSeconds,
+              (new Date(segment.endedAt).getTime() - start.getTime()) / 1000,
+            )
+          : segment.durationSeconds;
+        const endMinutes = Math.min(startMinutes + spanSeconds / 60, DAY_MINUTES);
         const color = segment.project
           ? projectColors.get(segment.project.id) ?? OTHER_COLOR
           : OTHER_COLOR;
@@ -242,7 +255,11 @@ export function DailyTimeline({ date, projects }: DailyTimelineProps) {
           return (
             <TooltipTrigger
               key={block.key}
-              className="daily-timeline-block"
+              className={
+                focusProjectId !== null && block.projectId !== focusProjectId
+                  ? "daily-timeline-block dimmed"
+                  : "daily-timeline-block"
+              }
               style={{
                 left: `${((block.startMinutes - range.start) / span) * 100}%`,
                 width: `${((block.endMinutes - block.startMinutes) / span) * 100}%`,
@@ -275,7 +292,10 @@ export function DailyTimeline({ date, projects }: DailyTimelineProps) {
           style={{ gridTemplateColumns: `repeat(${Math.min(legend.length, 5)}, 1fr)` }}
         >
           {legend.map((entry) => (
-            <li key={entry.id}>
+            <li
+              key={entry.id}
+              className={focusProjectId !== null && entry.id !== focusProjectId ? "dimmed" : undefined}
+            >
               <TooltipTrigger
                 className="daily-timeline-legend-trigger"
                 ariaLabel={`${entry.name}: dettaglio sessioni della giornata`}

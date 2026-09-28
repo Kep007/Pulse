@@ -36,6 +36,10 @@ export function ToastWindow() {
   // is part of the same corner UI, so it grows/shrinks with it.
   const [widgetScale, setWidgetScale] = useState(1);
   const [shortcut, setShortcut] = useState<string | null>(null);
+  // Bumped whenever the widget resizes (hover-expand, picker open/close) so a
+  // visible toast re-anchors to the widget's new rect instead of covering it.
+  const [geometryTick, setGeometryTick] = useState(0);
+  const isShowingRef = useRef(false);
   const dismissTimer = useRef<number | null>(null);
   const applyQueue = useRef(Promise.resolve());
   // Off-screen unscaled clone of the card (see render below): its natural
@@ -68,6 +72,18 @@ export function ToastWindow() {
 
     listen<number>("widget-scale-changed", (event) => {
       setWidgetScale(event.payload);
+    }).then((fn) => {
+      if (cancelled) {
+        fn();
+        return;
+      }
+      unlisten.push(fn);
+    });
+
+    listen("widget-geometry-changed", () => {
+      if (isShowingRef.current) {
+        setGeometryTick((tick) => tick + 1);
+      }
     }).then((fn) => {
       if (cancelled) {
         fn();
@@ -138,6 +154,8 @@ export function ToastWindow() {
   }, [display]);
 
   useEffect(() => {
+    isShowingRef.current = display !== null;
+
     async function applyVisibility() {
       const win = getCurrentWindow();
 
@@ -161,9 +179,27 @@ export function ToastWindow() {
       // rect is the card's natural (unscaled) size, clamped by the
       // min/max-width rules in toast.css.
       const measured = measureRef.current?.getBoundingClientRect();
-      const logical = {
+      const natural = {
         width: Math.ceil(measured?.width ?? 300),
         height: Math.ceil(measured?.height ?? 56),
+      };
+
+      const widget = await WebviewWindow.getByLabel("main");
+      const widgetRect =
+        widget && (await widget.isVisible().catch(() => false))
+          ? await Promise.all([widget.outerPosition(), widget.outerSize(), widget.scaleFactor()])
+              .then(([position, physicalSize, dpi]) => ({ position, physicalSize, dpi }))
+              .catch(() => null)
+          : null;
+
+      // Grow with the widget: when it's expanded (Ctrl+hover, project picker)
+      // the toast matches its width so the two read as one stacked unit.
+      const widgetLogicalWidth = widgetRect
+        ? widgetRect.physicalSize.toLogical(widgetRect.dpi).width
+        : 0;
+      const logical = {
+        width: Math.max(natural.width, Math.floor(widgetLogicalWidth / widgetScale)),
+        height: natural.height,
       };
       if (contentRef.current) {
         contentRef.current.style.width = `${logical.width}px`;
@@ -180,18 +216,16 @@ export function ToastWindow() {
       await win.setSize(new LogicalSize(size.width, size.height));
 
       // Anchor to the widget's *actual* window rect, not the saved corner:
-      // the widget is draggable, so the corner it was last docked to says
-      // nothing about where it sits right now — positioning from the corner
-      // left the toast overlapping (or nowhere near) a dragged widget.
+      // the widget resizes as it expands, so only its live rect says where
+      // the toast can sit without covering it.
       let placed = false;
-      const widget = await WebviewWindow.getByLabel("main");
-      if (widget && (await widget.isVisible().catch(() => false))) {
+      if (widgetRect) {
         try {
-          const [widgetPhysicalPos, widgetPhysicalSize, widgetDpi] = await Promise.all([
-            widget.outerPosition(),
-            widget.outerSize(),
-            widget.scaleFactor(),
-          ]);
+          const {
+            position: widgetPhysicalPos,
+            physicalSize: widgetPhysicalSize,
+            dpi: widgetDpi,
+          } = widgetRect;
           // The widget may have been dragged onto a different monitor than
           // the one this (hidden) toast window last showed on — resolve the
           // monitor from the widget's own center, falling back to ours.
@@ -223,9 +257,19 @@ export function ToastWindow() {
               workAreaPosition.x + workAreaSize.width / 2;
 
             let x = alignRight ? widgetPos.x + widgetSize.width - size.width : widgetPos.x;
+            const above = widgetPos.y - TOAST_WIDGET_GAP - size.height;
+            const below = widgetPos.y + widgetSize.height + TOAST_WIDGET_GAP;
+            const workAreaBottom = workAreaPosition.y + workAreaSize.height;
+            // A tall expanded widget (open picker) can leave no room on the
+            // preferred side — flip rather than let the clamp below push the
+            // toast on top of the widget.
             let y = placeAbove
-              ? widgetPos.y - TOAST_WIDGET_GAP - size.height
-              : widgetPos.y + widgetSize.height + TOAST_WIDGET_GAP;
+              ? above >= workAreaPosition.y || below + size.height > workAreaBottom
+                ? above
+                : below
+              : below + size.height <= workAreaBottom || above < workAreaPosition.y
+                ? below
+                : above;
 
             x = Math.min(
               Math.max(x, workAreaPosition.x),
@@ -289,7 +333,7 @@ export function ToastWindow() {
     applyQueue.current = applyQueue.current
       .then(applyVisibility)
       .catch((error) => console.error("Unable to update toast window", error));
-  }, [display, widgetScale, shortcut]);
+  }, [display, widgetScale, shortcut, geometryTick]);
 
   function respond(confirmed: boolean) {
     setDisplay(null);

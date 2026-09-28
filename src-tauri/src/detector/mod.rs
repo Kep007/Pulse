@@ -8,6 +8,7 @@ use crate::models::{PendingSuggestion, Source, TrackingState};
 use browser_signal::{BrowserSignal, MatchIntent};
 use chrono::{DateTime, Utc};
 use rusqlite::Connection;
+use std::collections::{HashMap, HashSet};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter, Manager};
@@ -36,8 +37,13 @@ const DEBOUNCE_HITS: u8 = 3;
 /// configurable from Settings (1m/2m/3m/5m/...) and loaded from the store at
 /// startup.
 pub const DEFAULT_IDLE_TIMEOUT_SECS: u64 = 60;
+/// A confirm prompt the user lets lapse (never answering Sì/No before the
+/// foreground moves on) this many times in a row for the same suggestion is
+/// muted for the rest of the session — the user has made clear, by ignoring
+/// it, that they don't want to switch there.
+const IGNORED_SUGGESTION_LIMIT: u8 = 5;
 
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, Eq, Hash)]
 struct Suggestion {
     project: Option<i64>,
     activity: Option<i64>,
@@ -86,9 +92,45 @@ pub struct DetectorState {
     /// detection isn't re-proposed every debounce cycle; cleared as soon as
     /// the foreground detection differs from it even once.
     suppressed: Option<Suggestion>,
+    /// Consecutive unanswered confirm prompts per suggestion — reset as soon
+    /// as the user answers that suggestion either way.
+    ignored_counts: HashMap<Suggestion, u8>,
+    /// Suggestions that hit IGNORED_SUGGESTION_LIMIT: never prompted again
+    /// this session unless the user picks that project/activity by hand.
+    /// In-memory only, like `idle_lock`, so a restart gives them a fresh start.
+    muted: HashSet<Suggestion>,
 }
 
 impl DetectorState {
+    /// Records that the pending prompt lapsed without an answer. Returns the
+    /// suggestion if this lapse is the one that mutes it.
+    fn abandon_pending(&mut self) -> Option<Suggestion> {
+        let suggestion = self.pending.take()?;
+        let count = self.ignored_counts.entry(suggestion.clone()).or_insert(0);
+        *count += 1;
+        if *count >= IGNORED_SUGGESTION_LIMIT {
+            self.ignored_counts.remove(&suggestion);
+            self.muted.insert(suggestion.clone());
+            return Some(suggestion);
+        }
+        None
+    }
+
+    fn forget_ignored(&mut self, suggestion: &Suggestion) {
+        self.ignored_counts.remove(suggestion);
+    }
+
+    /// A hand-picked project/activity lifts any mute on it — the user has now
+    /// shown they do work there.
+    fn unmute_matching(&mut self, project: Option<i64>, activity: Option<i64>) {
+        let matches = |s: &Suggestion| {
+            (project.is_some() && s.project == project)
+                || (project.is_none() && activity.is_some() && s.activity == activity)
+        };
+        self.muted.retain(|s| !matches(s));
+        self.ignored_counts.retain(|s, _| !matches(s));
+    }
+
     fn initial(now: DateTime<Utc>) -> Self {
         DetectorState {
             stable_project: None,
@@ -103,6 +145,8 @@ impl DetectorState {
             candidate: None,
             pending: None,
             suppressed: None,
+            ignored_counts: HashMap::new(),
+            muted: HashSet::new(),
         }
     }
 }
@@ -302,11 +346,14 @@ fn tick(app: &AppHandle) {
         // project/activity before the pending suggestion was acted on — drop
         // it and let the toast auto-dismiss instead of leaving a stale
         // confirm prompt around.
-        if detector.pending.take().is_some() {
+        if detector.pending.is_some() {
+            let newly_muted = detector.abandon_pending();
             let conn = state.db.lock().unwrap();
             let tracking_state = build_tracking_state(&conn, &detector);
-            drop(conn);
             let _ = app.emit("state-changed", &tracking_state);
+            if let Some(muted) = newly_muted {
+                emit_muted_toast(app, &conn, &muted);
+            }
         }
         return;
     }
@@ -384,6 +431,14 @@ fn tick(app: &AppHandle) {
         return;
     }
 
+    if detector.muted.contains(&detected) {
+        return;
+    }
+
+    // A different prompt still on screen was never answered — it lapses and
+    // counts toward muting that suggestion.
+    let newly_muted = detector.abandon_pending();
+
     // A manually-pinned project/activity stays maximum priority: keep
     // tracking it uninterrupted and only surface the switch as a suggestion
     // — the timer must not stop just because a confirmation is pending.
@@ -392,9 +447,17 @@ fn tick(app: &AppHandle) {
     let conn = state.db.lock().unwrap();
     let tracking_state = build_tracking_state(&conn, &detector);
     let _ = app.emit("state-changed", &tracking_state);
+    if let Some(muted) = newly_muted {
+        emit_muted_toast(app, &conn, &muted);
+    }
     if let Some(pending) = &tracking_state.pending {
         let _ = app.emit("suggestion-pending", pending);
     }
+}
+
+fn emit_muted_toast(app: &AppHandle, conn: &Connection, suggestion: &Suggestion) {
+    let label = detection_label(conn, suggestion.project, suggestion.activity);
+    emit_toast(app, &format!("Suggerimento disattivato · {label}"));
 }
 
 /// "Progetto: X · Attività" for the info toast shown when an auto-detected
@@ -472,6 +535,7 @@ pub fn set_active_project(app: &AppHandle, project_id: Option<i64>) -> TrackingS
     let mut detector = state.detector.lock().unwrap();
     detector.pending = None;
     detector.is_paused = false;
+    detector.unmute_matching(project_id, None);
     let conn = state.db.lock().unwrap();
     let activity_type_id = detector.stable_activity;
     let label = project_id
@@ -498,6 +562,7 @@ pub fn set_active_activity(app: &AppHandle, activity_type_id: Option<i64>) -> Tr
     let mut detector = state.detector.lock().unwrap();
     detector.pending = None;
     detector.is_paused = false;
+    detector.unmute_matching(None, activity_type_id);
     let conn = state.db.lock().unwrap();
     let project_id = detector.stable_project;
     let label = activity_type_id
@@ -696,6 +761,7 @@ pub fn confirm_pending_suggestion(app: &AppHandle) -> TrackingState {
         return build_tracking_state(&conn, &detector);
     };
 
+    detector.forget_ignored(&suggestion);
     detector.suppressed = None;
     detector.is_paused = false;
     let conn = state.db.lock().unwrap();
@@ -720,6 +786,7 @@ pub fn deny_pending_suggestion(app: &AppHandle) -> TrackingState {
     let mut detector = state.detector.lock().unwrap();
 
     if let Some(suggestion) = detector.pending.take() {
+        detector.forget_ignored(&suggestion);
         detector.suppressed = Some(suggestion);
     }
     detector.is_paused = false;
@@ -817,6 +884,8 @@ pub fn reset_all_data(app: &AppHandle) -> Result<TrackingState, String> {
     detector.candidate = None;
     detector.pending = None;
     detector.suppressed = None;
+    detector.ignored_counts.clear();
+    detector.muted.clear();
 
     let tracking_state = build_tracking_state(&conn, &detector);
     let _ = app.emit("state-changed", &tracking_state);
@@ -851,5 +920,48 @@ fn build_tracking_state(conn: &Connection, detector: &DetectorState) -> Tracking
         segment_started_at: detector.segment_started_at.to_rfc3339(),
         today_seconds_before_segment: detector.today_seconds_before_segment,
         pending,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn suggestion(project: i64) -> Suggestion {
+        Suggestion { project: Some(project), activity: None }
+    }
+
+    #[test]
+    fn suggestion_is_muted_after_limit_of_unanswered_prompts() {
+        let mut state = DetectorState::initial(Utc::now());
+        for round in 1..=IGNORED_SUGGESTION_LIMIT {
+            state.pending = Some(suggestion(7));
+            let muted = state.abandon_pending();
+            assert_eq!(muted.is_some(), round == IGNORED_SUGGESTION_LIMIT);
+        }
+        assert!(state.muted.contains(&suggestion(7)));
+        assert!(state.pending.is_none());
+    }
+
+    #[test]
+    fn answering_resets_the_streak() {
+        let mut state = DetectorState::initial(Utc::now());
+        for _ in 1..IGNORED_SUGGESTION_LIMIT {
+            state.pending = Some(suggestion(7));
+            state.abandon_pending();
+        }
+        state.forget_ignored(&suggestion(7));
+        state.pending = Some(suggestion(7));
+        assert!(state.abandon_pending().is_none());
+    }
+
+    #[test]
+    fn picking_the_project_by_hand_unmutes_it() {
+        let mut state = DetectorState::initial(Utc::now());
+        state.muted.insert(suggestion(7));
+        state.muted.insert(suggestion(8));
+        state.unmute_matching(Some(7), None);
+        assert!(!state.muted.contains(&suggestion(7)));
+        assert!(state.muted.contains(&suggestion(8)));
     }
 }

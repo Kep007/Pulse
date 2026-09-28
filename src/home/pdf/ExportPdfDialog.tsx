@@ -1,5 +1,7 @@
 import { useState } from "react";
-import type { ExportRange } from "./exportPdf";
+import { useProjects } from "../../lib/useProjects";
+import { loadSavedFilter } from "../Dashboard/DashboardView";
+import type { ExportOptions, ExportRange } from "./exportPdf";
 
 type PeriodId = "all" | "year" | "months6" | "months3" | "custom";
 
@@ -17,19 +19,29 @@ function isoDate(date: Date) {
 
 type ExportPdfDialogProps = {
   onCancel: () => void;
-  /** `null` = tutto lo storico. */
-  onConfirm: (range: ExportRange | null) => void;
+  onConfirm: (options: ExportOptions) => void;
 };
 
+// Starts on whatever project the dashboard is filtered to — the usual flow
+// is "I'm looking at this client, give me their report".
+function initialProjectId() {
+  const saved = loadSavedFilter();
+  return saved.metric === "project" ? saved.filterId : null;
+}
+
 export function ExportPdfDialog({ onCancel, onConfirm }: ExportPdfDialogProps) {
+  const projects = useProjects();
   const [period, setPeriod] = useState<PeriodId>("all");
   const [customFrom, setCustomFrom] = useState("");
   const [customTo, setCustomTo] = useState("");
+  const [projectId, setProjectId] = useState<number | null>(initialProjectId);
 
   const today = new Date();
   const todayIso = isoDate(today);
   const customValid = customFrom !== "" && customTo !== "" && customFrom <= customTo;
   const canSave = period !== "custom" || customValid;
+  const selectedProjectId =
+    projectId !== null && projects.some((project) => project.id === projectId) ? projectId : null;
 
   function resolveRange(): ExportRange | null {
     switch (period) {
@@ -58,7 +70,24 @@ export function ExportPdfDialog({ onCancel, onConfirm }: ExportPdfDialogProps) {
         onClick={(event) => event.stopPropagation()}
       >
         <h2 id="export-dialog-title">Esporta report PDF</h2>
-        <p>Scegli il periodo da includere nel report.</p>
+        <p>Scegli cosa includere nel report.</p>
+        <label className="export-project-field">
+          <span>Progetto</span>
+          <select
+            className="card-filter-select"
+            value={selectedProjectId ?? "all"}
+            onChange={(event) =>
+              setProjectId(event.target.value === "all" ? null : Number(event.target.value))
+            }
+          >
+            <option value="all">Tutti i progetti</option>
+            {projects.map((project) => (
+              <option key={project.id} value={project.id}>
+                {project.name}
+              </option>
+            ))}
+          </select>
+        </label>
         <div className="export-period-options">
           {PERIOD_OPTIONS.map((option) => (
             <label key={option.id} className="export-period-option">
@@ -103,7 +132,7 @@ export function ExportPdfDialog({ onCancel, onConfirm }: ExportPdfDialogProps) {
             type="button"
             className="primary"
             disabled={!canSave}
-            onClick={() => onConfirm(resolveRange())}
+            onClick={() => onConfirm({ range: resolveRange(), projectId: selectedProjectId })}
           >
             Salva
           </button>

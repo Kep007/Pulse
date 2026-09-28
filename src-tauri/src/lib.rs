@@ -13,6 +13,30 @@ use tauri_plugin_log::{Target, TargetKind};
 use tauri_plugin_store::StoreExt;
 use tauri_plugin_updater::UpdaterExt;
 
+/// Runs `db::compact_history` shortly after startup (not during it, so the
+/// widget appears without waiting) and then every few hours, since the app
+/// commonly stays open for days via autostart. A failure only logs: the
+/// compaction transaction rolls back and tracking carries on untouched.
+fn spawn_history_compaction(app: tauri::AppHandle) {
+    tauri::async_runtime::spawn(async move {
+        tokio::time::sleep(std::time::Duration::from_secs(60)).await;
+        let mut interval = tokio::time::interval(std::time::Duration::from_secs(6 * 60 * 60));
+        loop {
+            interval.tick().await;
+            let backup = db::data_dir(&app).join("pulse-backup-pre-compattazione.db");
+            let state = app.state::<AppState>();
+            let conn = state.db.lock().unwrap();
+            match db::compact_history(&conn, chrono::Utc::now(), Some(&backup)) {
+                Ok(report) if report != db::CompactionReport::default() => {
+                    log::info!("history compaction: {report:?}");
+                }
+                Ok(_) => {}
+                Err(err) => log::error!("history compaction failed: {err}"),
+            }
+        }
+    });
+}
+
 /// Writes crashes to a plain file directly, independent of the log plugin —
 /// so a panic during startup (before that plugin has finished initializing,
 /// e.g. inside `db::open`'s `.expect()` calls) still leaves a trace. This is
@@ -289,6 +313,7 @@ pub fn run() {
             }
             detector::spawn_polling(app.handle().clone());
             detector::browser_signal::spawn_server(app.handle().clone());
+            spawn_history_compaction(app.handle().clone());
 
             let update_handle = app.handle().clone();
             tauri::async_runtime::spawn(async move {

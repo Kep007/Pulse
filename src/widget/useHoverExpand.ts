@@ -1,4 +1,5 @@
 import { LogicalPosition, LogicalSize } from "@tauri-apps/api/dpi";
+import { emit } from "@tauri-apps/api/event";
 import { currentMonitor, getCurrentWindow } from "@tauri-apps/api/window";
 import { useEffect, useRef } from "react";
 import { pollWidgetHover } from "../lib/tauri";
@@ -67,6 +68,10 @@ export function useHoverExpand(targetSize: SizeSpec, enabled: boolean) {
         win.setSize(new LogicalSize(targetSize.width, targetSize.height)),
         win.setPosition(new LogicalPosition(endX, endY)),
       ]);
+      // The toast window anchors itself to the widget's rect; without this it
+      // stays where the collapsed pill was and ends up covering the expanded
+      // widget / open project picker.
+      await emit("widget-geometry-changed");
     }
 
     applyTarget().catch((error) => console.error("Unable to resize widget", error));
