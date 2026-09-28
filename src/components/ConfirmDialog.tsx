@@ -1,3 +1,4 @@
+import { createPortal } from "react-dom";
 type ConfirmDialogProps = {
   title: string;
   message: string;
@@ -13,7 +14,9 @@ export function ConfirmDialog({
   onConfirm,
   onCancel,
 }: ConfirmDialogProps) {
-  return (
+  // Portaled to <body>: rendered in place, a dialog opened from inside a
+  // dashboard card was clipped by that card and sat under the pinned filter bar.
+  return createPortal(
     <div className="confirm-overlay" role="presentation" onClick={onCancel}>
       <div
         className="confirm-dialog"
@@ -33,6 +36,7 @@ export function ConfirmDialog({
           </button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }

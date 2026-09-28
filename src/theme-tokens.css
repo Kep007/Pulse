@@ -1,0 +1,88 @@
+/* Design tokens. Light is the default; dark applies when the user picks it
+   (data-theme="dark", set by lib/theme.ts) or picks "Sistema" while Windows is
+   in dark mode. Every color in this file goes through these. */
+:root {
+  color-scheme: light;
+  --bg: #f5f6f8;
+  --bg-rgb: 245, 246, 248;
+  --surface: #ffffff;
+  --surface-rgb: 255, 255, 255;
+  --surface-2: #f8fafc;
+  --surface-hover: #f2f4f7;
+  --soft: #eef2f7;
+  --text: #172033;
+  --text-2: #475467;
+  --text-3: #667085;
+  --text-4: #98a2b3;
+  --text-5: #344054;
+  --border: #d0d5dd;
+  --border-2: #e2e8f0;
+  --accent: #2563eb;
+  --accent-hover: #1d4ed8;
+  --accent-soft: #eff4ff;
+  --accent-border: #b2c7f5;
+  --danger: #b42318;
+  --danger-strong: #f04438;
+  --danger-soft: #fee4e2;
+  --danger-soft-hover: #fecdc9;
+  --success: #067647;
+  --success-soft: #dcfae6;
+  --warn: #93370d;
+  --warn-soft: #fef0c7;
+  --shadow-rgb: 17, 24, 39;
+  --tooltip-bg: #172033;
+  --tooltip-border: transparent;
+  --ink-rgb: 17, 24, 39;
+  --heat-0: #e1e0d9;
+  --heat-1: #86b6ef;
+  --heat-2: #3987e5;
+  --heat-3: #1c5cab;
+  --heat-4: #0d366b;
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #0e1015;
+  --bg-rgb: 14, 16, 21;
+  --surface: #171a21;
+  --surface-rgb: 23, 26, 33;
+  --surface-2: #1c2028;
+  --surface-hover: #232833;
+  --soft: #252a35;
+  --text: #e8eaf0;
+  --text-2: #b6bcc8;
+  --text-3: #9098a6;
+  --text-4: #697181;
+  --text-5: #c9ceda;
+  --border: #323846;
+  --border-2: #2a303c;
+  --accent: #5b8cff;
+  --accent-hover: #7aa2ff;
+  --accent-soft: rgba(91, 140, 255, 0.14);
+  --accent-border: #3d5ba8;
+  --danger: #f97066;
+  --danger-strong: #f97066;
+  --danger-soft: rgba(240, 68, 56, 0.16);
+  --danger-soft-hover: rgba(240, 68, 56, 0.26);
+  --success: #47cd89;
+  --success-soft: rgba(71, 205, 137, 0.15);
+  --warn: #fdb022;
+  --warn-soft: rgba(253, 176, 34, 0.15);
+  --shadow-rgb: 0, 0, 0;
+  --tooltip-bg: #2b3140;
+  --tooltip-border: rgba(255, 255, 255, 0.08);
+  --ink-rgb: 232, 234, 240;
+  --heat-0: #252a35;
+  --heat-1: #1e3a66;
+  --heat-2: #2f5fb0;
+  --heat-3: #4f86e8;
+  --heat-4: #9cc3ff;
+}
+
+:root {
+  --overlay-rgb: 15, 23, 42;
+}
+
+:root[data-theme="dark"] {
+  --overlay-rgb: 0, 0, 0;
+}

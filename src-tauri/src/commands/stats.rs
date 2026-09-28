@@ -293,10 +293,22 @@ mod tests {
 }
 
 #[tauri::command]
-pub fn get_day_detail(state: State<AppState>, date: String) -> Result<Vec<SegmentDto>, String> {
+/// Segments starting in [from, to) — two RFC 3339 instants, so the caller
+/// passes its own *local* midnight-to-midnight day. (A UTC date used to be
+/// passed here, which between 00:00 and 02:00 in Italy showed yesterday's
+/// sessions under "Oggi".)
+pub fn get_day_detail(
+    state: State<AppState>,
+    from: String,
+    to: String,
+) -> Result<Vec<SegmentDto>, String> {
     let conn = state.db.lock().unwrap();
-    let from_dt = parse_boundary(&date, false)?;
-    let to_dt = parse_boundary(&date, true)?;
+    let parse = |value: &str| {
+        DateTime::parse_from_rfc3339(value)
+            .map(|dt| dt.with_timezone(&Utc))
+            .map_err(|err| err.to_string())
+    };
+    let (from_dt, to_dt) = (parse(&from)?, parse(&to)?);
     let raw = db::segments_between(&conn, from_dt, to_dt).map_err(|err| err.to_string())?;
     let projects = project_lookup(&conn).map_err(|err| err.to_string())?;
     let activities = activity_lookup(&conn).map_err(|err| err.to_string())?;

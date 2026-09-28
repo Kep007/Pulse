@@ -1,3 +1,4 @@
+import { createPortal } from "react-dom";
 import { useState } from "react";
 import type { ReactNode } from "react";
 import { IconPdf, IconSheet } from "../../components/icons";
@@ -77,7 +78,9 @@ export function ExportDialog({ onCancel, onConfirm }: ExportDialogProps) {
     }
   }
 
-  return (
+  // Portaled to <body>: rendered in place, a dialog opened from inside a
+  // dashboard card was clipped by that card and sat under the pinned filter bar.
+  return createPortal(
     <div className="confirm-overlay" role="presentation" onClick={onCancel}>
       <div
         className="confirm-dialog export-dialog"
@@ -170,6 +173,7 @@ export function ExportDialog({ onCancel, onConfirm }: ExportDialogProps) {
           </button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }

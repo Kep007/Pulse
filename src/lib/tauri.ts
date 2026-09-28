@@ -88,8 +88,11 @@ export function getMonthlySummary(from: string, to: string) {
   return invoke<MonthBucket[]>("get_monthly_summary", { from, to });
 }
 
-export function getDayDetail(date: string) {
-  return invoke<SegmentDto[]>("get_day_detail", { date });
+/** Sessions of the local day containing `date` (midnight to midnight). */
+export function getDayDetail(date: Date) {
+  const from = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+  const to = new Date(date.getFullYear(), date.getMonth(), date.getDate() + 1);
+  return invoke<SegmentDto[]>("get_day_detail", { from: from.toISOString(), to: to.toISOString() });
 }
 
 export function confirmPendingSuggestion() {

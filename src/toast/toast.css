@@ -21,53 +21,98 @@
   width: max-content;
 }
 
-.toast-measure .toast-card.confirm {
-  min-width: 264px;
-  max-width: 380px;
+.toast-measure .toast-card.prompt {
+  min-width: 280px;
+  max-width: 360px;
 }
 
 .toast-measure .toast-card.info {
-  min-width: 220px;
+  min-width: 200px;
   max-width: 320px;
 }
 
+/* No outer shadow: the window hugs the card exactly, so a shadow would be
+   cut off at the window edge. A hairline border does the separating. */
 .toast-card {
   flex: 1;
   display: flex;
-  align-items: center;
-  gap: 14px;
-  /* Equal on all four sides — the window hugs the card's content, so this
-     padding is the only whitespace on every edge. */
-  padding: 12px;
-  border-radius: 10px;
-  box-shadow: 0 10px 26px rgba(17, 24, 39, 0.28);
+  border: 1px solid var(--border-2);
+  border-radius: 14px;
+  background: var(--surface);
+  color: var(--text);
   font-size: 13px;
 }
 
 .toast-card.info {
-  background: rgba(23, 32, 51, 0.94);
-  color: #ffffff;
-  justify-content: center;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 14px 9px 9px;
+  border-radius: 12px;
 }
 
-.toast-card.confirm {
-  background: #fab219;
-  color: #172033;
-  justify-content: space-between;
-  /* Text (and the Sì button) start from the card's top-left corner instead
-     of floating vertically centered. */
+.toast-card.prompt {
+  flex-direction: column;
+  gap: 12px;
+  padding: 14px;
+}
+
+.toast-main {
+  display: flex;
   align-items: flex-start;
+  gap: 12px;
+}
+
+.toast-icon {
+  flex-shrink: 0;
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 10px;
+}
+
+.toast-card.info .toast-icon {
+  width: 26px;
+  height: 26px;
+  border-radius: 8px;
+}
+
+.tone-accent .toast-icon {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.tone-success .toast-icon {
+  background: var(--success-soft);
+  color: var(--success);
+}
+
+.tone-warn .toast-icon {
+  background: var(--warn-soft);
+  color: var(--warn);
+}
+
+.tone-neutral .toast-icon {
+  background: var(--soft);
+  color: var(--text-2);
+}
+
+.toast-text {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+  padding-top: 1px;
 }
 
 .toast-card p {
   margin: 0;
-  line-height: 1.35;
+  line-height: 1.4;
 }
 
 /* styles.css (shared by every window) styles bare `strong` for the widget's
-   project name — 16px, dark color, nowrap/ellipsis. Inside the toast the
-   bold marks must stay the same size as their own line, so undo all of it:
-   bold alone carries the emphasis here. */
+   project name — 16px, dark color, nowrap/ellipsis. Inside the toast bold
+   must stay the size and color of its own line. */
 .toast-card strong {
   font-size: inherit;
   color: inherit;
@@ -79,121 +124,92 @@
 }
 
 .toast-title {
-  font-size: 15px;
+  font-size: 13.5px;
+  font-weight: 600;
 }
 
-.toast-hint {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-}
-
-.toast-hint svg {
-  width: 13px;
-  height: 13px;
-  flex-shrink: 0;
-  fill: currentColor;
-}
-
-.toast-text {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  min-width: 0;
-}
-
-.toast-text p {
+.toast-body {
+  color: var(--text-2);
   overflow-wrap: anywhere;
 }
 
-/* Both lines keep a uniform size within themselves — bold alone marks the
-   project name on the first line and the key combo on the second; the
-   hierarchy between the two lines comes from the hint being smaller. */
-.toast-hint {
+.toast-body strong {
+  color: var(--text);
+}
+
+.toast-info-text {
+  font-weight: 500;
+  overflow-wrap: anywhere;
+}
+
+.toast-card .toast-hint {
+  margin-top: 4px;
   font-size: 11px;
-  opacity: 0.78;
+  color: var(--text-3);
   white-space: nowrap;
+}
+
+.toast-hint kbd {
+  padding: 1px 6px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  font: inherit;
+  font-weight: 600;
+  color: var(--text-2);
+  background: var(--surface-2);
 }
 
 .toast-actions {
   display: flex;
-  flex-direction: column;
-  gap: 6px;
-  flex-shrink: 0;
+  justify-content: flex-end;
+  gap: 8px;
 }
 
 .toast-actions button {
   border: 0;
-  border-radius: 7px;
-  padding: 5px 16px;
+  border-radius: 8px;
+  padding: 6px 14px;
   font: inherit;
+  font-size: 12.5px;
   font-weight: 600;
   cursor: pointer;
+  transition: background-color 150ms ease, color 150ms ease;
 }
 
 .toast-actions button.deny {
-  background: rgba(23, 32, 51, 0.12);
-  color: #172033;
+  background: transparent;
+  color: var(--text-2);
 }
 
 .toast-actions button.deny:hover {
-  background: rgba(23, 32, 51, 0.2);
+  background: var(--surface-hover);
+  color: var(--text);
 }
 
 .toast-actions button.accept {
-  background: #172033;
+  background: var(--accent);
   color: #ffffff;
 }
 
 .toast-actions button.accept:hover {
-  background: #0d1424;
-}
-
-/* Only the on-screen card animates — never the measuring clone, whose
-   bounding box sizes the window. Scale (not translate) keeps the card
-   inside the window's bounds for the whole animation. */
-.toast-window .toast-card {
-  animation: toast-in 180ms cubic-bezier(0.2, 0.8, 0.2, 1);
-}
-
-@keyframes toast-in {
-  from {
-    opacity: 0;
-    transform: scale(0.96);
-  }
-  to {
-    opacity: 1;
-    transform: scale(1);
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .toast-window .toast-card {
-    animation: none;
-  }
-}
-
-.toast-card.recap {
-  background: #ffffff;
-  color: #172033;
-  justify-content: space-between;
-  align-items: flex-start;
+  background: var(--accent-hover);
 }
 
 .toast-recap-list {
   display: flex;
   flex-direction: column;
-  gap: 3px;
-  margin: 4px 0 0;
+  gap: 4px;
+  margin: 6px 0 0;
   padding: 0;
   list-style: none;
   font-size: 12px;
+  color: var(--text-2);
 }
 
 .toast-recap-list li {
   display: flex;
   align-items: center;
-  gap: 7px;
+  gap: 8px;
 }
 
 .toast-recap-dot {
@@ -211,7 +227,31 @@
   white-space: nowrap;
 }
 
-.toast-measure .toast-card.recap {
-  min-width: 264px;
-  max-width: 340px;
+.toast-recap-time {
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+}
+
+/* Only the on-screen card animates — never the measuring clone, whose
+   bounding box sizes the window. Scale (not translate) keeps the card
+   inside the window's bounds for the whole animation. */
+.toast-window .toast-card {
+  animation: toast-in 200ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+@keyframes toast-in {
+  from {
+    opacity: 0;
+    transform: scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .toast-window .toast-card {
+    animation: none;
+  }
 }

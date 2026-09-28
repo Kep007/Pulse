@@ -1,3 +1,4 @@
+import { createPortal } from "react-dom";
 import { useState } from "react";
 import { deleteTimeEntries, saveTimeRange } from "../../lib/tauri";
 import type { ProjectDto } from "../../lib/types";
@@ -46,7 +47,9 @@ export function TimeEntryEditor({ date, draft, projects, onClose }: TimeEntryEdi
     }
   }
 
-  return (
+  // Portaled to <body>: rendered in place, a dialog opened from inside a
+  // dashboard card was clipped by that card and sat under the pinned filter bar.
+  return createPortal(
     <div className="confirm-overlay" role="presentation" onClick={onClose}>
       <div
         className="confirm-dialog export-dialog entry-editor"
@@ -113,6 +116,7 @@ export function TimeEntryEditor({ date, draft, projects, onClose }: TimeEntryEdi
           </button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }

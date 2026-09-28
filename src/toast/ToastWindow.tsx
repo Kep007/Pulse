@@ -25,7 +25,43 @@ import type {
   TrackingState,
 } from "../lib/types";
 import { getSavedCorner, getSavedScale } from "../widget/widgetPosition";
+import type { ReactNode } from "react";
+import {
+  IconChart,
+  IconCheck,
+  IconCoffee,
+  IconLock,
+  IconPause,
+  IconPlay,
+  IconSwitch,
+  IconTag,
+} from "../components/icons";
+import { initTheme, refreshTheme } from "../lib/theme";
+import "../theme-tokens.css";
 import "./toast.css";
+
+initTheme();
+
+type Tone = "accent" | "success" | "warn" | "neutral";
+
+// Info toasts are short status lines from the backend; the icon is picked
+// from their wording so each kind of event reads at a glance.
+function infoIcon(text: string): { icon: ReactNode; tone: Tone } {
+  const lower = text.toLowerCase();
+  if (lower.includes("pausa") && !lower.includes("finita")) {
+    return { icon: <IconPause size={14} />, tone: "warn" };
+  }
+  if (lower.includes("ripres") || lower.includes("finita")) {
+    return { icon: <IconPlay size={14} />, tone: "success" };
+  }
+  if (lower.includes("blocco")) {
+    return { icon: <IconLock size={14} />, tone: "accent" };
+  }
+  if (lower.startsWith("progetto") || lower.startsWith("attività")) {
+    return { icon: <IconTag size={14} />, tone: "accent" };
+  }
+  return { icon: <IconCheck size={14} />, tone: "neutral" };
+}
 
 const MARGIN = 16;
 // The widget's own collapsed height (App.tsx's COLLAPSED_HEIGHT) — kept in
@@ -213,6 +249,9 @@ export function ToastWindow() {
 
   useEffect(() => {
     isShowingRef.current = display !== null;
+    if (display) {
+      refreshTheme();
+    }
 
     async function applyVisibility() {
       const win = getCurrentWindow();
@@ -413,102 +452,116 @@ export function ToastWindow() {
     return null;
   }
 
-  function renderTitle(current: Exclude<Display, { kind: "info" | "recap" }>) {
-    switch (current.kind) {
-      case "confirm":
-        return (
-          <>
-            Cambio rilevato:{" "}
-            <strong>{current.suggestion.project?.name ?? "Nessun progetto"}</strong>
-            {current.suggestion.activityType ? ` · ${current.suggestion.activityType.name}` : ""}
-          </>
-        );
-      case "resume":
-        return (
-          <>
-            Stai lavorando su{" "}
-            <strong>
-              {current.offer.project?.name ?? current.offer.activityType?.name ?? "un progetto"}
-            </strong>{" "}
-            dalle {formatClock(current.offer.since)}? Riprendo da lì
-          </>
-        );
-      case "break":
-        return (
-          <>
-            Pausa pranzo fino alle <strong>{current.prompt.endsAt}</strong>. Stai facendo un extra?
-          </>
-        );
-    }
+  function shortcutHint() {
+    return shortcut ? (
+      <p className="toast-hint">
+        <kbd>{formatAccelerator(shortcut)}</kbd> per confermare
+      </p>
+    ) : null;
   }
 
-  const ACTION_LABELS: Record<Exclude<Display["kind"], "info" | "recap">, [string, string]> = {
-    confirm: ["Sì", "No"],
-    resume: ["Riprendi", "No"],
-    break: ["Continuo", "Pausa"],
-  };
-
-  function renderCard(current: Display) {
-    if (current.kind === "info") {
-      return <div className="toast-card info">{current.text}</div>;
-    }
-    if (current.kind === "recap") {
-      const { recap } = current;
-      return (
-        <div className="toast-card recap">
-          <div className="toast-text">
-            <p className="toast-title">
-              Oggi: <strong>{formatHoursMinutes(recap.totalSeconds)}</strong>
-            </p>
-            <ul className="toast-recap-list">
-              {recap.projects.slice(0, RECAP_MAX_PROJECTS).map((project) => (
-                <li key={project.id}>
-                  <span className="toast-recap-dot" style={{ background: project.color ?? "#98a2b3" }} />
-                  <span className="toast-recap-name">{project.name}</span>
-                  <span>{formatHoursMinutes(project.seconds)}</span>
-                </li>
-              ))}
-            </ul>
-          </div>
-          <div className="toast-actions">
-            <button type="button" className="accept" onClick={() => respond(true)}>
-              Rivedi
-            </button>
-            <button type="button" className="deny" onClick={() => respond(false)}>
-              OK
-            </button>
-          </div>
-        </div>
-      );
-    }
-    const [acceptLabel, denyLabel] = ACTION_LABELS[current.kind];
+  function prompt(
+    tone: Tone,
+    icon: ReactNode,
+    title: ReactNode,
+    body: ReactNode,
+    [acceptLabel, denyLabel]: [string, string],
+    extra?: ReactNode,
+  ) {
     return (
-      <div className="toast-card confirm">
-        <div className="toast-text">
-          <p className="toast-title">{renderTitle(current)}</p>
-          {shortcut && (
-            <p className="toast-hint">
-              {/* Minimal filled keyboard glyph (Material "keyboard") — marks
-                  the line as a hotkey without adding any text. */}
-              <svg viewBox="0 0 24 24" aria-hidden="true">
-                <path d="M20 5H4c-1.1 0-1.99.9-1.99 2L2 17c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm-9 3h2v2h-2V8zm0 3h2v2h-2v-2zM8 8h2v2H8V8zm0 3h2v2H8v-2zm-1 2H5v-2h2v2zm0-3H5V8h2v2zm9 7H8v-2h8v2zm0-4h-2v-2h2v2zm0-3h-2V8h2v2zm3 3h-2v-2h2v2zm0-3h-2V8h2v2z" />
-              </svg>
-              <span>
-                <strong>{formatAccelerator(shortcut)}</strong> per confermare
-              </span>
-            </p>
-          )}
+      <div className={`toast-card prompt tone-${tone}`}>
+        <div className="toast-main">
+          <span className="toast-icon">{icon}</span>
+          <div className="toast-text">
+            <p className="toast-title">{title}</p>
+            {body && <p className="toast-body">{body}</p>}
+            {extra}
+          </div>
         </div>
         <div className="toast-actions">
-          <button type="button" className="accept" onClick={() => respond(true)}>
-            {acceptLabel}
-          </button>
           <button type="button" className="deny" onClick={() => respond(false)}>
             {denyLabel}
+          </button>
+          <button type="button" className="accept" onClick={() => respond(true)}>
+            {acceptLabel}
           </button>
         </div>
       </div>
     );
+  }
+
+  function renderCard(current: Display) {
+    switch (current.kind) {
+      case "info": {
+        const { icon, tone } = infoIcon(current.text);
+        return (
+          <div className={`toast-card info tone-${tone}`}>
+            <span className="toast-icon">{icon}</span>
+            <span className="toast-info-text">{current.text}</span>
+          </div>
+        );
+      }
+      case "confirm": {
+        const { suggestion } = current;
+        return prompt(
+          "accent",
+          <IconSwitch size={16} />,
+          "Cambio rilevato",
+          <>
+            Passare a <strong>{suggestion.project?.name ?? "Nessun progetto"}</strong>
+            {suggestion.activityType ? ` · ${suggestion.activityType.name}` : ""}?
+          </>,
+          ["Sì", "No"],
+          shortcutHint(),
+        );
+      }
+      case "resume": {
+        const { offer } = current;
+        return prompt(
+          "success",
+          <IconPlay size={16} />,
+          "Stai lavorando?",
+          <>
+            Su <strong>{offer.project?.name ?? offer.activityType?.name ?? "un progetto"}</strong> dalle{" "}
+            {formatClock(offer.since)}. Riprendo da lì?
+          </>,
+          ["Riprendi", "No"],
+          shortcutHint(),
+        );
+      }
+      case "break":
+        return prompt(
+          "warn",
+          <IconCoffee size={16} />,
+          "Pausa pranzo",
+          <>
+            In pausa fino alle <strong>{current.prompt.endsAt}</strong>. Stai facendo un extra?
+          </>,
+          ["Continuo", "Pausa"],
+          shortcutHint(),
+        );
+      case "recap": {
+        const { recap } = current;
+        return prompt(
+          "accent",
+          <IconChart size={16} />,
+          <>
+            La tua giornata · <strong>{formatHoursMinutes(recap.totalSeconds)}</strong>
+          </>,
+          null,
+          ["Rivedi", "OK"],
+          <ul className="toast-recap-list">
+            {recap.projects.slice(0, RECAP_MAX_PROJECTS).map((project) => (
+              <li key={project.id}>
+                <span className="toast-recap-dot" style={{ background: project.color ?? "#98a2b3" }} />
+                <span className="toast-recap-name">{project.name}</span>
+                <span className="toast-recap-time">{formatHoursMinutes(project.seconds)}</span>
+              </li>
+            ))}
+          </ul>,
+        );
+      }
+    }
   }
 
   return (

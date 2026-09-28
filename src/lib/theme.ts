@@ -29,8 +29,22 @@ export function setThemePreference(preference: ThemePreference) {
   apply(preference);
 }
 
-/** Applies the saved theme and keeps "Sistema" in step with Windows. */
+/** Applies the saved theme and keeps it current: "Sistema" follows Windows,
+ *  and a change made in another Pulse window (they share localStorage)
+ *  arrives through the storage event. */
 export function initTheme() {
+  const refresh = () => apply(loadThemePreference());
+  refresh();
+  darkQuery.addEventListener("change", refresh);
+  window.addEventListener("storage", (event) => {
+    if (event.key === STORAGE_KEY) {
+      refresh();
+    }
+  });
+}
+
+/** Re-reads the saved preference — for windows that stay hidden between
+ *  uses (the toast), in case a storage event was missed. */
+export function refreshTheme() {
   apply(loadThemePreference());
-  darkQuery.addEventListener("change", () => apply(loadThemePreference()));
 }

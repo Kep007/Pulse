@@ -15,3 +15,4 @@ export { IconPdf } from "./IconPdf";
 export type { IconProps } from "./types";
 export { IconExport } from "./IconExport";
 export { IconSheet } from "./IconSheet";
+export { IconCoffee } from "./IconCoffee";

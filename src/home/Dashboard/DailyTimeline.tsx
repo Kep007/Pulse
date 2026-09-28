@@ -25,12 +25,9 @@ const MICRO_BLOCK_SECONDS = 60;
 // exactly the artifact this component is trying to stop showing.
 const MERGE_GAP_MINUTES = 1;
 
-export function isoDate(date: Date) {
-  return date.toISOString().slice(0, 10);
-}
-
+// Local calendar day — the timeline and its editor both work in local time.
 export function isToday(date: Date) {
-  return isoDate(date) === isoDate(new Date());
+  return date.toDateString() === new Date().toDateString();
 }
 
 export function formatDayLabel(date: Date) {
@@ -106,7 +103,7 @@ export function DailyTimeline({ date, projects, focusProjectId = null }: DailyTi
 
   useEffect(() => {
     let cancelled = false;
-    getDayDetail(isoDate(date)).then((result) => {
+    getDayDetail(date).then((result) => {
       if (!cancelled) {
         setSegments(result);
       }
