@@ -69,6 +69,12 @@ type Block = {
   color: string;
 };
 
+// Sessions synced from another PC come with negative ids and are read-only
+// here — they belong to that PC's history.
+function isEditable(block: Block) {
+  return block.endedAt !== null && block.ids.every((id) => id > 0);
+}
+
 type LegendEntry = {
   id: number;
   name: string;
@@ -307,13 +313,13 @@ export function DailyTimeline({ date, projects, focusProjectId = null }: DailyTi
               key={block.key}
               className={[
                 "daily-timeline-block",
-                block.endedAt !== null && "editable",
+                isEditable(block) && "editable",
                 focusProjectId !== null && block.projectId !== focusProjectId && "dimmed",
               ]
                 .filter(Boolean)
                 .join(" ")}
               onClick={
-                block.endedAt === null
+                !isEditable(block)
                   ? undefined
                   : () =>
                       setEditing({
@@ -339,7 +345,11 @@ export function DailyTimeline({ date, projects, focusProjectId = null }: DailyTi
                     Totale in giornata: {formatHoursMinutes(dailyTotal)}
                   </p>
                   <p className="cell-tooltip-empty">
-                    {block.endedAt === null ? "Sessione in corso" : "Clicca per modificare"}
+                    {block.endedAt === null
+                      ? "Sessione in corso"
+                      : isEditable(block)
+                        ? "Clicca per modificare"
+                        : "Registrata sull'altro PC"}
                   </p>
                 </div>
               )}

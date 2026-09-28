@@ -95,7 +95,7 @@ fn grouped_totals(
         "SELECT substr(started_at, 1, ?4), project_id,
                 SUM(COALESCE(duration_seconds,
                     MAX(0, CAST((julianday(?3) - julianday(started_at)) * 86400 AS INTEGER))))
-         FROM time_entries
+         FROM all_entries
          WHERE started_at >= ?1 AND started_at < ?2
          GROUP BY 1, 2",
     )?;
@@ -115,7 +115,7 @@ fn grouped_totals(
         "SELECT substr(started_at, 1, ?4), activity_type_id,
                 SUM(COALESCE(duration_seconds,
                     MAX(0, CAST((julianday(?3) - julianday(started_at)) * 86400 AS INTEGER))))
-         FROM time_entries
+         FROM all_entries
          WHERE started_at >= ?1 AND started_at < ?2 AND activity_type_id IS NOT NULL
          GROUP BY 1, 2",
     )?;

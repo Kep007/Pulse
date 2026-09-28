@@ -18,6 +18,7 @@ const MIGRATIONS: &[(&str, &str)] = &[
         include_str!("migrations/0004_project_sort_order.sql"),
     ),
     ("0005_compaction", include_str!("migrations/0005_compaction.sql")),
+    ("0006_sync", include_str!("migrations/0006_sync.sql")),
 ];
 
 /// Single folder all of Pulse's per-user data (database, settings) lives in
@@ -461,13 +462,13 @@ pub fn seconds_tracked_since(
     match (project_id, activity_type_id) {
         (None, None) => Ok(0),
         (Some(project_id), _) => conn.query_row(
-            "SELECT COALESCE(SUM(duration_seconds), 0) FROM time_entries
+            "SELECT COALESCE(SUM(duration_seconds), 0) FROM all_entries
              WHERE project_id = ?1 AND started_at >= ?2 AND duration_seconds IS NOT NULL",
             rusqlite::params![project_id, since.to_rfc3339()],
             |row| row.get(0),
         ),
         (None, Some(activity_type_id)) => conn.query_row(
-            "SELECT COALESCE(SUM(duration_seconds), 0) FROM time_entries
+            "SELECT COALESCE(SUM(duration_seconds), 0) FROM all_entries
              WHERE project_id IS NULL AND activity_type_id = ?1
                AND started_at >= ?2 AND duration_seconds IS NOT NULL",
             rusqlite::params![activity_type_id, since.to_rfc3339()],
@@ -487,7 +488,7 @@ pub fn project_totals_since(
         "SELECT project_id,
                 SUM(COALESCE(duration_seconds,
                     MAX(0, CAST((julianday(?2) - julianday(started_at)) * 86400 AS INTEGER)))) AS seconds
-         FROM time_entries
+         FROM all_entries
          WHERE started_at >= ?1
          GROUP BY project_id
          ORDER BY seconds DESC",
@@ -534,7 +535,7 @@ pub fn segments_between(
 ) -> rusqlite::Result<Vec<RawSegment>> {
     let mut stmt = conn.prepare(
         "SELECT id, started_at, ended_at, duration_seconds, project_id, activity_type_id
-         FROM time_entries
+         FROM all_entries
          WHERE started_at >= ?1 AND started_at < ?2
          ORDER BY started_at",
     )?;

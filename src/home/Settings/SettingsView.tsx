@@ -9,6 +9,7 @@ import { IdleTimeoutSetting } from "./IdleTimeoutSetting";
 import { LockShortcutSetting } from "./LockShortcutSetting";
 import { QuitButton } from "./QuitButton";
 import { ResetDataButton } from "./ResetDataButton";
+import { SyncSetting } from "./SyncSetting";
 import { ThemeSetting } from "./ThemeSetting";
 import { WidgetPositionSetting } from "./WidgetPositionSetting";
 import { WidgetScaleSetting } from "./WidgetScaleSetting";
@@ -43,6 +44,9 @@ export function SettingsView() {
       <Section title="Scorciatoie">
         <ConfirmShortcutSetting />
         <LockShortcutSetting />
+      </Section>
+      <Section title="Sincronizzazione">
+        <SyncSetting />
       </Section>
       <Section title="Dati">
         <ResetDataButton />

@@ -8,6 +8,7 @@ import type {
   MonthBucket,
   ProjectDto,
   SegmentDto,
+  SyncStatus,
   TrackingState,
 } from "./types";
 
@@ -225,4 +226,21 @@ export function exportSessions(
   projectId: number | null,
 ) {
   return invoke<boolean>("export_sessions", { path, format, from, to, projectId });
+}
+
+export function getSyncStatus() {
+  return invoke<SyncStatus>("get_sync_status");
+}
+
+/** A null/empty token keeps the stored one. */
+export function setSyncConfig(repo: string, token: string | null, enabled: boolean) {
+  return invoke<SyncStatus>("set_sync_config", { repo, token, enabled });
+}
+
+export function forgetSyncToken() {
+  return invoke<SyncStatus>("forget_sync_token");
+}
+
+export function syncNow() {
+  return invoke<SyncStatus>("sync_now");
 }

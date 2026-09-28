@@ -123,3 +123,13 @@ export type FocusStats = {
   overall: FocusTotals;
   projects: ProjectFocus[];
 };
+
+export type SyncStatus = {
+  repo: string | null;
+  enabled: boolean;
+  hasToken: boolean;
+  deviceName: string;
+  running: boolean;
+  lastSync: string | null;
+  lastError: string | null;
+};

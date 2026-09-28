@@ -1,6 +1,6 @@
 [package]
 name = "pulse"
-version = "2.0.12"
+version = "2.0.13"
 description = "Automatic desktop time tracker for client work"
 authors = ["Pulse"]
 edition = "2021"
@@ -32,6 +32,13 @@ unicode-normalization = "0.1"
 chrono = { version = "0.4", features = ["serde"] }
 tiny_http = "0.12"
 rust_xlsxwriter = "0.99.1"
+reqwest = { version = "0.13", default-features = false, features = ["json", "rustls-no-provider"] }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std"] }
+keyring = { version = "3", features = ["windows-native"] }
+base64 = "0.22"
+sha1 = "0.10"
+hex = "0.4"
+uuid = { version = "1", features = ["v4"] }
 
 [target.'cfg(windows)'.dependencies]
 windows = { version = "0.61", features = [

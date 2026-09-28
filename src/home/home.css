@@ -2013,3 +2013,83 @@
   text-transform: uppercase;
   color: var(--text-3);
 }
+
+.sync-setting {
+  flex-direction: column;
+  gap: 12px;
+}
+
+.sync-fields {
+  display: flex;
+  align-items: flex-end;
+  gap: 10px;
+}
+
+.sync-fields label {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--text-2);
+}
+
+.sync-fields input {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 7px 10px;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 400;
+  color: var(--text);
+  background: var(--surface);
+}
+
+.sync-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.sync-state {
+  font-size: 12px;
+  color: var(--text-3);
+}
+
+.sync-state.error {
+  color: var(--danger);
+}
+
+.sync-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.settings-row .sync-actions button.primary {
+  background: var(--accent);
+  color: #ffffff;
+}
+
+.settings-row .sync-actions button:disabled,
+.settings-row .sync-fields button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.sync-help {
+  font-size: 12px;
+  color: var(--text-3);
+}
+
+.sync-help summary {
+  cursor: pointer;
+  color: var(--accent);
+}
+
+.sync-help ol {
+  margin: 8px 0 0;
+  padding-left: 18px;
+  line-height: 1.5;
+}
