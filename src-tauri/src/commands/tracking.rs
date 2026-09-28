@@ -69,3 +69,8 @@ pub fn accept_resume_offer(app: AppHandle) -> TrackingState {
 pub fn decline_resume_offer(app: AppHandle) -> TrackingState {
     detector::decline_resume_offer(&app)
 }
+
+#[tauri::command]
+pub fn show_day_recap_now(app: AppHandle) -> bool {
+    detector::show_day_recap_now(&app)
+}

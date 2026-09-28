@@ -259,6 +259,7 @@ pub fn run() {
             commands::tracking::dismiss_break_prompt,
             commands::tracking::accept_resume_offer,
             commands::tracking::decline_resume_offer,
+            commands::tracking::show_day_recap_now,
             commands::settings::get_break_schedule,
             commands::settings::set_break_schedule,
             commands::settings::get_day_recap,

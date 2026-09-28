@@ -209,20 +209,22 @@ export function DashboardView() {
 
   return (
     <div className="dashboard-view">
-      <div className="dashboard-filter-bar">
-        <span className="dashboard-filter-label">
-          {metric === "project" ? "Mostra dati di" : "Mostra dati dell'attività"}
-        </span>
-        <DashboardCardControls
-          metric={metric}
-          onMetricChange={setMetric}
-          filterId={filterId}
-          onFilterChange={setFilterId}
-          projects={projects}
-          activityTypes={activityTypes}
-          filterMode="all"
-          activityEnabled={activityEnabled}
-        />
+      <div className="dashboard-filter-sticky">
+        <div className="dashboard-filter-bar">
+          <span className="dashboard-filter-label">
+            {metric === "project" ? "Mostra dati di" : "Mostra dati dell'attività"}
+          </span>
+          <DashboardCardControls
+            metric={metric}
+            onMetricChange={setMetric}
+            filterId={filterId}
+            onFilterChange={setFilterId}
+            projects={projects}
+            activityTypes={activityTypes}
+            filterMode="all"
+            activityEnabled={activityEnabled}
+          />
+        </div>
       </div>
 
       <section className="dashboard-card">

@@ -30,6 +30,8 @@
   --warn: #93370d;
   --warn-soft: #fef0c7;
   --shadow-rgb: 17, 24, 39;
+  --tooltip-bg: #172033;
+  --tooltip-border: transparent;
   --ink-rgb: 17, 24, 39;
   --heat-0: #e1e0d9;
   --heat-1: #86b6ef;
@@ -67,6 +69,8 @@
   --warn: #fdb022;
   --warn-soft: rgba(253, 176, 34, 0.15);
   --shadow-rgb: 0, 0, 0;
+  --tooltip-bg: #2b3140;
+  --tooltip-border: rgba(255, 255, 255, 0.08);
   --ink-rgb: 232, 234, 240;
   --heat-0: #252a35;
   --heat-1: #1e3a66;
@@ -671,48 +675,49 @@
   max-width: 820px;
 }
 
-/* Pinned filter bar. The pseudo-elements fade the cards scrolling past it:
-   ::before fills the strip above it with the page background, ::after is a
-   soft blurred fade below it — so cards dissolve into the bar instead of
-   sliding under a hard edge. Both stay inside .home-content's 24px side
-   padding, so they never cause horizontal overflow. */
-.dashboard-filter-bar {
+/* Pinned filter bar. The sticky wrapper is a full-width strip of page
+   background, so cards scrolling up disappear behind it — including behind
+   the pill's rounded corners, which would otherwise be filled by the card
+   passing underneath and look square. Its ::after fades the cards out below
+   the pill. The wrapper stays inside .home-content's 24px side padding, so
+   it never causes horizontal overflow. */
+.dashboard-filter-sticky {
   position: sticky;
-  top: 12px;
+  top: 0;
   z-index: 5;
+  margin: -12px -20px 0;
+  padding: 12px 20px 0;
+  background: var(--bg);
+}
+
+.dashboard-filter-sticky::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 100%;
+  height: 40px;
+  pointer-events: none;
+  background: linear-gradient(
+    to bottom,
+    var(--bg) 0%,
+    rgba(var(--bg-rgb), 0.85) 35%,
+    rgba(var(--bg-rgb), 0) 100%
+  );
+  backdrop-filter: blur(6px);
+  -webkit-mask-image: linear-gradient(to bottom, #000 0%, #000 40%, transparent 100%);
+  mask-image: linear-gradient(to bottom, #000 0%, #000 40%, transparent 100%);
+}
+
+.dashboard-filter-bar {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
   padding: 10px 14px 10px 20px;
-  border-radius: 12px;
-  background: rgba(var(--surface-rgb), 0.92);
-  backdrop-filter: blur(8px);
+  border-radius: 14px;
+  background: var(--surface);
   box-shadow: 0 4px 16px rgba(var(--shadow-rgb), 0.08);
-}
-
-.dashboard-filter-bar::before,
-.dashboard-filter-bar::after {
-  content: "";
-  position: absolute;
-  left: -20px;
-  right: -20px;
-  pointer-events: none;
-}
-
-.dashboard-filter-bar::before {
-  bottom: 100%;
-  height: 36px;
-  background: var(--bg);
-}
-
-.dashboard-filter-bar::after {
-  top: 100%;
-  height: 28px;
-  background: linear-gradient(to bottom, var(--bg) 0%, rgba(var(--bg-rgb), 0) 100%);
-  backdrop-filter: blur(4px);
-  -webkit-mask-image: linear-gradient(to bottom, #000 0%, transparent 100%);
-  mask-image: linear-gradient(to bottom, #000 0%, transparent 100%);
 }
 
 .dashboard-filter-label {
@@ -1055,13 +1060,14 @@
 }
 
 .cell-tooltip {
+  border: 1px solid var(--tooltip-border);
   min-width: 160px;
   /* Safety cap so a pathologically long name still ellipsizes (the li span's
      overflow rules) instead of producing a viewport-wide tooltip. */
   max-width: 320px;
   padding: 10px 12px;
   border-radius: 8px;
-  background: var(--text);
+  background: var(--tooltip-bg);
   color: #ffffff;
   text-align: left;
   font-size: 11px;
@@ -2092,4 +2098,8 @@
   margin: 8px 0 0;
   padding-left: 18px;
   line-height: 1.5;
+}
+
+.settings-row p.settings-note {
+  color: var(--accent);
 }

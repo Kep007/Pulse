@@ -244,3 +244,8 @@ export function forgetSyncToken() {
 export function syncNow() {
   return invoke<SyncStatus>("sync_now");
 }
+
+/** False when nothing has been tracked today (no popup shown). */
+export function showDayRecapNow() {
+  return invoke<boolean>("show_day_recap_now");
+}

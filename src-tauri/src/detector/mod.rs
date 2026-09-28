@@ -434,20 +434,33 @@ fn maybe_show_day_recap(
     ) {
         return;
     }
-    let Some(midnight) = local_minute_to_utc(date, 0) else {
-        return;
+    emit_day_recap(app, state, now);
+}
+
+/// The recap on demand (Settings → "Mostra ora"). False when nothing has
+/// been tracked today, so there's nothing to show.
+pub fn show_day_recap_now(app: &AppHandle) -> bool {
+    let state = app.state::<AppState>();
+    emit_day_recap(app, &state, Utc::now())
+}
+
+/// Sums today per project and hands it to the toast window. False when
+/// today is still empty.
+fn emit_day_recap(app: &AppHandle, state: &AppState, now: DateTime<Utc>) -> bool {
+    let Some(midnight) = local_minute_to_utc(Local::now().date_naive(), 0) else {
+        return false;
     };
     let conn = state.db.lock().unwrap();
     let totals = match db::project_totals_since(&conn, midnight, now) {
         Ok(totals) => totals,
         Err(err) => {
             log::error!("failed to build day recap: {err}");
-            return;
+            return false;
         }
     };
     let total_seconds: i64 = totals.iter().map(|(_, seconds)| seconds).sum();
     if total_seconds <= 0 {
-        return;
+        return false;
     }
     let projects = totals
         .into_iter()
@@ -469,6 +482,7 @@ fn maybe_show_day_recap(
             projects,
         },
     );
+    true
 }
 
 pub fn day_recap_settings(app: &AppHandle) -> DayRecapSettings {
