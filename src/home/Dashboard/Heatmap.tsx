@@ -48,7 +48,9 @@ export const MONTH_LABELS_IT = [
 // contrast against the chart surface, which step 150/100 fail).
 // Exported so MonthlySummary can reuse the same ramp for a consistent read
 // across both charts.
-export const BUCKET_COLORS = ["#e1e0d9", "#86b6ef", "#3987e5", "#1c5cab", "#0d366b"];
+// Theme tokens (home.css): the dark theme flips the ramp so "more time" stays
+// the most prominent cell on either background.
+export const BUCKET_COLORS = ["var(--heat-0)", "var(--heat-1)", "var(--heat-2)", "var(--heat-3)", "var(--heat-4)"];
 
 function isoDateKey(date: Date) {
   return date.toISOString().slice(0, 10);

@@ -172,3 +172,46 @@
     animation: none;
   }
 }
+
+.toast-card.recap {
+  background: #ffffff;
+  color: #172033;
+  justify-content: space-between;
+  align-items: flex-start;
+}
+
+.toast-recap-list {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin: 4px 0 0;
+  padding: 0;
+  list-style: none;
+  font-size: 12px;
+}
+
+.toast-recap-list li {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.toast-recap-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.toast-recap-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.toast-measure .toast-card.recap {
+  min-width: 264px;
+  max-width: 340px;
+}

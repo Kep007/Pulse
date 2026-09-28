@@ -66,6 +66,33 @@ pub struct TrackingState {
     /// restarting from zero.
     pub today_seconds_before_segment: i64,
     pub pending: Option<PendingSuggestion>,
+    /// While paused: steady work on a project was noticed — offer to resume
+    /// it from `since` (see `detector::breaks::ForgottenWork`).
+    pub resume_offer: Option<ResumeOfferDto>,
+    /// The scheduled break just paused tracking; asks "continue working?".
+    pub break_prompt: Option<BreakPromptDto>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ResumeOfferDto {
+    pub project: Option<ProjectDto>,
+    pub activity_type: Option<ActivityTypeDto>,
+    pub since: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DayRecapDto {
+    pub total_seconds: i64,
+    pub projects: Vec<BreakdownEntry>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BreakPromptDto {
+    /// "HH:MM", local time.
+    pub ends_at: String,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -102,9 +129,37 @@ pub struct MonthBucket {
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SegmentDto {
+    pub id: i64,
     pub started_at: String,
     pub ended_at: Option<String>,
     pub duration_seconds: i64,
     pub project: Option<ProjectDto>,
     pub activity_type: Option<ActivityTypeDto>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FocusTotalsDto {
+    pub tracked_seconds: i64,
+    pub deep_work_seconds: i64,
+    pub sessions: i64,
+    pub short_sessions: i64,
+    pub switches: i64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectFocusDto {
+    pub id: i64,
+    pub name: String,
+    pub color: Option<String>,
+    pub totals: FocusTotalsDto,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FocusStatsDto {
+    pub days: i64,
+    pub overall: FocusTotalsDto,
+    pub projects: Vec<ProjectFocusDto>,
 }

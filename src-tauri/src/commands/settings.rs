@@ -1,5 +1,6 @@
 use crate::db;
 use crate::detector::mouse_hook::{self, MouseButton};
+use crate::detector::breaks::{BreakSchedule, DayRecapSettings};
 use crate::detector::{self, AppState};
 use crate::models::TrackingState;
 use std::str::FromStr;
@@ -379,4 +380,63 @@ pub fn set_activity_detection_enabled(
     store.save().map_err(|err| err.to_string())?;
 
     Ok(enabled)
+}
+
+pub(crate) const BREAK_SCHEDULE_KEY: &str = "breakSchedule";
+
+/// The stored schedule, repaired if malformed; the (disabled) default if none.
+pub(crate) fn load_break_schedule(app: &AppHandle) -> BreakSchedule {
+    app.store(settings_store_path(app))
+        .ok()
+        .and_then(|store| store.get(BREAK_SCHEDULE_KEY))
+        .and_then(|value| serde_json::from_value::<BreakSchedule>(value).ok())
+        .unwrap_or_default()
+        .normalized()
+}
+
+#[tauri::command]
+pub fn get_break_schedule(app: AppHandle) -> BreakSchedule {
+    detector::break_schedule(&app)
+}
+
+#[tauri::command]
+pub fn set_break_schedule(app: AppHandle, schedule: BreakSchedule) -> Result<BreakSchedule, String> {
+    let schedule = schedule.normalized();
+    let store = app.store(settings_store_path(&app)).map_err(|err| err.to_string())?;
+    store.set(
+        BREAK_SCHEDULE_KEY,
+        serde_json::to_value(&schedule).map_err(|err| err.to_string())?,
+    );
+    store.save().map_err(|err| err.to_string())?;
+    detector::set_break_schedule(&app, schedule.clone());
+    Ok(schedule)
+}
+
+const DAY_RECAP_KEY: &str = "dayRecap";
+
+pub(crate) fn load_day_recap(app: &AppHandle) -> DayRecapSettings {
+    app.store(settings_store_path(app))
+        .ok()
+        .and_then(|store| store.get(DAY_RECAP_KEY))
+        .and_then(|value| serde_json::from_value::<DayRecapSettings>(value).ok())
+        .unwrap_or_default()
+        .normalized()
+}
+
+#[tauri::command]
+pub fn get_day_recap(app: AppHandle) -> DayRecapSettings {
+    detector::day_recap_settings(&app)
+}
+
+#[tauri::command]
+pub fn set_day_recap(app: AppHandle, settings: DayRecapSettings) -> Result<DayRecapSettings, String> {
+    let settings = settings.normalized();
+    let store = app.store(settings_store_path(&app)).map_err(|err| err.to_string())?;
+    store.set(
+        DAY_RECAP_KEY,
+        serde_json::to_value(&settings).map_err(|err| err.to_string())?,
+    );
+    store.save().map_err(|err| err.to_string())?;
+    detector::set_day_recap_settings(&app, settings.clone());
+    Ok(settings)
 }

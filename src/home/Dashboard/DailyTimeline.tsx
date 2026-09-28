@@ -1,9 +1,11 @@
+import { listen } from "@tauri-apps/api/event";
 import { useEffect, useMemo, useState } from "react";
 import { formatHoursMinutes } from "../../lib/format";
 import { getDayDetail } from "../../lib/tauri";
 import type { ProjectDto, SegmentDto } from "../../lib/types";
 import { projectColorMap } from "../../lib/projectColors";
 import { OTHER_COLOR } from "./categoricalPalette";
+import { TimeEntryEditor, type TimeEntryDraft } from "./TimeEntryEditor";
 import { TooltipTrigger } from "./TooltipTrigger";
 
 const DAY_MINUTES = 24 * 60;
@@ -55,6 +57,8 @@ function formatMinutesOfDay(totalMinutes: number) {
 // own start/end/duration instead of a single segment reference.
 type Block = {
   key: number;
+  /** Every segment folded into this block — what an edit replaces. */
+  ids: number[];
   projectId: number | null;
   projectName: string;
   startedAt: string;
@@ -91,6 +95,8 @@ type DailyTimelineProps = {
 // component just renders whatever `date` it's given.
 export function DailyTimeline({ date, projects, focusProjectId = null }: DailyTimelineProps) {
   const [segments, setSegments] = useState<SegmentDto[]>([]);
+  const [reloadKey, setReloadKey] = useState(0);
+  const [editing, setEditing] = useState<TimeEntryDraft | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -102,7 +108,43 @@ export function DailyTimeline({ date, projects, focusProjectId = null }: DailyTi
     return () => {
       cancelled = true;
     };
-  }, [date]);
+  }, [date, reloadKey]);
+
+  // A manual edit (here or anywhere else) changes this day's segments.
+  useEffect(() => {
+    const unlistenPromise = listen("history-changed", () => setReloadKey((key) => key + 1));
+    return () => {
+      void unlistenPromise.then((unlisten) => unlisten());
+    };
+  }, []);
+
+  function openNewEntry() {
+    let startMinutes = 9 * 60;
+    if (isToday(date)) {
+      const now = new Date();
+      const endMinutes = Math.floor((now.getHours() * 60 + now.getMinutes()) / 5) * 5;
+      startMinutes = Math.max(0, endMinutes - 60);
+      setEditing({
+        ids: [],
+        projectId: null,
+        start: formatMinutesOfDay(startMinutes),
+        end: formatMinutesOfDay(Math.max(endMinutes, startMinutes + 5)),
+      });
+      return;
+    }
+    setEditing({ ids: [], projectId: null, start: "09:00", end: "10:00" });
+  }
+
+  const editor = editing && (
+    <TimeEntryEditor date={date} draft={editing} projects={projects} onClose={() => setEditing(null)} />
+  );
+  const addButton = (
+    <div className="daily-timeline-footer">
+      <button type="button" className="timeline-add-button" onClick={openNewEntry}>
+        + Aggiungi sessione
+      </button>
+    </div>
+  );
 
   // Same stored-color-first resolution as every other chart and the Progetti
   // tab's swatches (see projectColorMap) — the timeline recolors live when
@@ -148,6 +190,7 @@ export function DailyTimeline({ date, projects, focusProjectId = null }: DailyTi
           : OTHER_COLOR;
         return {
           key: index,
+          ids: [segment.id],
           projectId: segment.project?.id ?? null,
           projectName: segment.project?.name ?? "Nessun progetto",
           startedAt: segment.startedAt,
@@ -178,9 +221,10 @@ export function DailyTimeline({ date, projects, focusProjectId = null }: DailyTi
         previous.endMinutes = Math.max(previous.endMinutes, block.endMinutes);
         previous.durationSeconds += block.durationSeconds;
         previous.endedAt = block.endedAt;
+        previous.ids.push(...block.ids);
         continue;
       }
-      merged.push({ ...block });
+      merged.push({ ...block, ids: [...block.ids] });
     }
     return merged;
   }, [segments, projectColors]);
@@ -236,7 +280,13 @@ export function DailyTimeline({ date, projects, focusProjectId = null }: DailyTi
   }, [blocks, dailyTotalsByProject]);
 
   if (!range) {
-    return <p className="dashboard-empty">Nessun dato per questo giorno.</p>;
+    return (
+      <>
+        <p className="dashboard-empty">Nessun dato per questo giorno.</p>
+        {addButton}
+        {editor}
+      </>
+    );
   }
 
   const span = range.end - range.start;
@@ -255,10 +305,23 @@ export function DailyTimeline({ date, projects, focusProjectId = null }: DailyTi
           return (
             <TooltipTrigger
               key={block.key}
-              className={
-                focusProjectId !== null && block.projectId !== focusProjectId
-                  ? "daily-timeline-block dimmed"
-                  : "daily-timeline-block"
+              className={[
+                "daily-timeline-block",
+                block.endedAt !== null && "editable",
+                focusProjectId !== null && block.projectId !== focusProjectId && "dimmed",
+              ]
+                .filter(Boolean)
+                .join(" ")}
+              onClick={
+                block.endedAt === null
+                  ? undefined
+                  : () =>
+                      setEditing({
+                        ids: block.ids,
+                        projectId: block.projectId,
+                        start: formatTimeOfDay(block.startedAt),
+                        end: formatTimeOfDay(block.endedAt!),
+                      })
               }
               style={{
                 left: `${((block.startMinutes - range.start) / span) * 100}%`,
@@ -274,6 +337,9 @@ export function DailyTimeline({ date, projects, focusProjectId = null }: DailyTi
                   </span>
                   <p className="cell-tooltip-empty">
                     Totale in giornata: {formatHoursMinutes(dailyTotal)}
+                  </p>
+                  <p className="cell-tooltip-empty">
+                    {block.endedAt === null ? "Sessione in corso" : "Clicca per modificare"}
                   </p>
                 </div>
               )}
@@ -325,6 +391,8 @@ export function DailyTimeline({ date, projects, focusProjectId = null }: DailyTi
           ))}
         </ul>
       )}
+      {addButton}
+      {editor}
     </div>
   );
 }

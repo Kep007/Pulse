@@ -1,7 +1,10 @@
 import { invoke } from "@tauri-apps/api/core";
 import type {
   ActivityTypeDto,
+  BreakSchedule,
   DayBucket,
+  DayRecapSettings,
+  FocusStats,
   MonthBucket,
   ProjectDto,
   SegmentDto,
@@ -162,4 +165,64 @@ export function setProjectColors(colors: { id: number; color: string }[]) {
 
 export function saveReportPdf(path: string, contents: number[]) {
   return invoke<void>("save_report_pdf", { path, contents });
+}
+
+export function continueThroughBreak() {
+  return invoke<TrackingState>("continue_through_break");
+}
+
+export function dismissBreakPrompt() {
+  return invoke<TrackingState>("dismiss_break_prompt");
+}
+
+export function acceptResumeOffer() {
+  return invoke<TrackingState>("accept_resume_offer");
+}
+
+export function declineResumeOffer() {
+  return invoke<TrackingState>("decline_resume_offer");
+}
+
+export function getBreakSchedule() {
+  return invoke<BreakSchedule>("get_break_schedule");
+}
+
+export function setBreakSchedule(schedule: BreakSchedule) {
+  return invoke<BreakSchedule>("set_break_schedule", { schedule });
+}
+
+export function saveTimeRange(
+  replaceIds: number[],
+  projectId: number | null,
+  start: string,
+  end: string,
+) {
+  return invoke<void>("save_time_range", { replaceIds, projectId, start, end });
+}
+
+export function deleteTimeEntries(ids: number[]) {
+  return invoke<void>("delete_time_entries", { ids });
+}
+
+export function getDayRecap() {
+  return invoke<DayRecapSettings>("get_day_recap");
+}
+
+export function setDayRecap(settings: DayRecapSettings) {
+  return invoke<DayRecapSettings>("set_day_recap", { settings });
+}
+
+export function getFocusStats(days: number) {
+  return invoke<FocusStats>("get_focus_stats", { days });
+}
+
+/** Resolves false when the period had nothing to export (no file written). */
+export function exportSessions(
+  path: string,
+  format: "csv" | "xlsx",
+  from: string | null,
+  to: string | null,
+  projectId: number | null,
+) {
+  return invoke<boolean>("export_sessions", { path, format, from, to, projectId });
 }

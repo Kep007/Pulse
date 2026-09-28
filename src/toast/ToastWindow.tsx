@@ -3,14 +3,27 @@ import { listen } from "@tauri-apps/api/event";
 import { currentMonitor, getCurrentWindow, monitorFromPoint } from "@tauri-apps/api/window";
 import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { useEffect, useRef, useState } from "react";
+import { formatHoursMinutes } from "../lib/format";
 import { formatAccelerator } from "../lib/shortcutFormat";
 import {
+  acceptResumeOffer,
   confirmPendingSuggestion,
+  continueThroughBreak,
+  declineResumeOffer,
   denyPendingSuggestion,
+  dismissBreakPrompt,
+  openHomeWindow,
   getConfirmShortcut,
   getCurrentState,
 } from "../lib/tauri";
-import type { PendingSuggestion, ToastMessage, TrackingState } from "../lib/types";
+import type {
+  BreakPrompt,
+  DayRecap,
+  PendingSuggestion,
+  ResumeOffer,
+  ToastMessage,
+  TrackingState,
+} from "../lib/types";
 import { getSavedCorner, getSavedScale } from "../widget/widgetPosition";
 import "./toast.css";
 
@@ -28,7 +41,39 @@ const INFO_LIFETIME_MS = 3200;
 
 type Display =
   | { kind: "info"; text: string }
-  | { kind: "confirm"; suggestion: PendingSuggestion };
+  | { kind: "confirm"; suggestion: PendingSuggestion }
+  | { kind: "resume"; offer: ResumeOffer }
+  | { kind: "break"; prompt: BreakPrompt }
+  | { kind: "recap"; recap: DayRecap };
+
+const RECAP_LIFETIME_MS = 2 * 60 * 1000;
+const RECAP_MAX_PROJECTS = 4;
+
+// The break / forgotten-work prompts live in the tracking state itself (a
+// fresh window or a missed event still finds them there), so they're derived
+// from each state snapshot. Returning `current` when nothing changed keeps
+// the window from re-anchoring on every unrelated state-changed.
+function promptFromState(current: Display | null, state: TrackingState): Display | null {
+  if (state.pending) {
+    return current?.kind === "confirm" ? current : { kind: "confirm", suggestion: state.pending };
+  }
+  if (state.resumeOffer) {
+    return current?.kind === "resume" && current.offer.since === state.resumeOffer.since
+      ? current
+      : { kind: "resume", offer: state.resumeOffer };
+  }
+  if (state.breakPrompt) {
+    return current?.kind === "break" && current.prompt.endsAt === state.breakPrompt.endsAt
+      ? current
+      : { kind: "break", prompt: state.breakPrompt };
+  }
+  return current?.kind === "info" || current?.kind === "recap" ? current : null;
+}
+
+function formatClock(iso: string) {
+  const date = new Date(iso);
+  return `${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
+}
 
 export function ToastWindow() {
   const [display, setDisplay] = useState<Display | null>(null);
@@ -53,8 +98,8 @@ export function ToastWindow() {
     const unlisten: Array<() => void> = [];
 
     getCurrentState().then((state) => {
-      if (!cancelled && state.pending) {
-        setDisplay({ kind: "confirm", suggestion: state.pending });
+      if (!cancelled) {
+        setDisplay((current) => promptFromState(current, state));
       }
     });
 
@@ -92,9 +137,21 @@ export function ToastWindow() {
       unlisten.push(fn);
     });
 
+    listen<DayRecap>("day-recap", (event) => {
+      setDisplay((current) =>
+        current && current.kind !== "info" ? current : { kind: "recap", recap: event.payload },
+      );
+    }).then((fn) => {
+      if (cancelled) {
+        fn();
+        return;
+      }
+      unlisten.push(fn);
+    });
+
     listen<ToastMessage>("toast-message", (event) => {
       setDisplay((current) =>
-        current?.kind === "confirm" ? current : { kind: "info", text: event.payload.text },
+        current && current.kind !== "info" ? current : { kind: "info", text: event.payload.text },
       );
     }).then((fn) => {
       if (cancelled) {
@@ -119,9 +176,7 @@ export function ToastWindow() {
     });
 
     listen<TrackingState>("state-changed", (event) => {
-      if (!event.payload.pending) {
-        setDisplay((current) => (current?.kind === "confirm" ? null : current));
-      }
+      setDisplay((current) => promptFromState(current, event.payload));
     }).then((fn) => {
       if (cancelled) {
         fn();
@@ -142,8 +197,11 @@ export function ToastWindow() {
       dismissTimer.current = null;
     }
 
-    if (display?.kind === "info") {
-      dismissTimer.current = window.setTimeout(() => setDisplay(null), INFO_LIFETIME_MS);
+    if (display?.kind === "info" || display?.kind === "recap") {
+      dismissTimer.current = window.setTimeout(
+        () => setDisplay(null),
+        display.kind === "info" ? INFO_LIFETIME_MS : RECAP_LIFETIME_MS,
+      );
     }
 
     return () => {
@@ -173,7 +231,7 @@ export function ToastWindow() {
       // eats every mouse event meant for the app underneath — customers hit
       // this as a "dead zone" right where the popup appears (e.g. Figma's
       // export dropdown, which opens exactly above the widget's corner).
-      await win.setIgnoreCursorEvents(display.kind !== "confirm");
+      await win.setIgnoreCursorEvents(display.kind === "info");
 
       // The hidden clone was laid out during this same React commit, so its
       // rect is the card's natural (unscaled) size, clamped by the
@@ -336,26 +394,98 @@ export function ToastWindow() {
   }, [display, widgetScale, shortcut, geometryTick]);
 
   function respond(confirmed: boolean) {
+    const kind = display?.kind;
     setDisplay(null);
-    void (confirmed ? confirmPendingSuggestion() : denyPendingSuggestion());
+    if (kind === "recap") {
+      if (confirmed) {
+        void openHomeWindow();
+      }
+    } else if (kind === "resume") {
+      void (confirmed ? acceptResumeOffer() : declineResumeOffer());
+    } else if (kind === "break") {
+      void (confirmed ? continueThroughBreak() : dismissBreakPrompt());
+    } else {
+      void (confirmed ? confirmPendingSuggestion() : denyPendingSuggestion());
+    }
   }
 
   if (!display) {
     return null;
   }
 
+  function renderTitle(current: Exclude<Display, { kind: "info" | "recap" }>) {
+    switch (current.kind) {
+      case "confirm":
+        return (
+          <>
+            Cambio rilevato:{" "}
+            <strong>{current.suggestion.project?.name ?? "Nessun progetto"}</strong>
+            {current.suggestion.activityType ? ` · ${current.suggestion.activityType.name}` : ""}
+          </>
+        );
+      case "resume":
+        return (
+          <>
+            Stai lavorando su{" "}
+            <strong>
+              {current.offer.project?.name ?? current.offer.activityType?.name ?? "un progetto"}
+            </strong>{" "}
+            dalle {formatClock(current.offer.since)}? Riprendo da lì
+          </>
+        );
+      case "break":
+        return (
+          <>
+            Pausa pranzo fino alle <strong>{current.prompt.endsAt}</strong>. Stai facendo un extra?
+          </>
+        );
+    }
+  }
+
+  const ACTION_LABELS: Record<Exclude<Display["kind"], "info" | "recap">, [string, string]> = {
+    confirm: ["Sì", "No"],
+    resume: ["Riprendi", "No"],
+    break: ["Continuo", "Pausa"],
+  };
+
   function renderCard(current: Display) {
     if (current.kind === "info") {
       return <div className="toast-card info">{current.text}</div>;
     }
-    const { suggestion } = current;
+    if (current.kind === "recap") {
+      const { recap } = current;
+      return (
+        <div className="toast-card recap">
+          <div className="toast-text">
+            <p className="toast-title">
+              Oggi: <strong>{formatHoursMinutes(recap.totalSeconds)}</strong>
+            </p>
+            <ul className="toast-recap-list">
+              {recap.projects.slice(0, RECAP_MAX_PROJECTS).map((project) => (
+                <li key={project.id}>
+                  <span className="toast-recap-dot" style={{ background: project.color ?? "#98a2b3" }} />
+                  <span className="toast-recap-name">{project.name}</span>
+                  <span>{formatHoursMinutes(project.seconds)}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+          <div className="toast-actions">
+            <button type="button" className="accept" onClick={() => respond(true)}>
+              Rivedi
+            </button>
+            <button type="button" className="deny" onClick={() => respond(false)}>
+              OK
+            </button>
+          </div>
+        </div>
+      );
+    }
+    const [acceptLabel, denyLabel] = ACTION_LABELS[current.kind];
     return (
       <div className="toast-card confirm">
         <div className="toast-text">
-          <p className="toast-title">
-            Cambio rilevato: <strong>{suggestion.project?.name ?? "Nessun progetto"}</strong>
-            {suggestion.activityType ? ` · ${suggestion.activityType.name}` : ""}
-          </p>
+          <p className="toast-title">{renderTitle(current)}</p>
           {shortcut && (
             <p className="toast-hint">
               {/* Minimal filled keyboard glyph (Material "keyboard") — marks
@@ -371,10 +501,10 @@ export function ToastWindow() {
         </div>
         <div className="toast-actions">
           <button type="button" className="accept" onClick={() => respond(true)}>
-            Sì
+            {acceptLabel}
           </button>
           <button type="button" className="deny" onClick={() => respond(false)}>
-            No
+            {denyLabel}
           </button>
         </div>
       </div>

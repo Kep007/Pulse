@@ -1,12 +1,24 @@
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useEffect, useRef, useState } from "react";
-import { IconClose, IconMinimize, IconPdf } from "../components/icons";
+import {
+  IconChart,
+  IconClose,
+  IconExport,
+  IconMinimize,
+  IconSettingsGear,
+  IconTag,
+} from "../components/icons";
+import { initTheme } from "../lib/theme";
 import { DashboardView } from "./Dashboard/DashboardView";
-import type { ExportOptions } from "./pdf/exportPdf";
-import { ExportPdfDialog } from "./pdf/ExportPdfDialog";
+import { save } from "@tauri-apps/plugin-dialog";
+import { exportSessions } from "../lib/tauri";
+import { ExportDialog, type ExportRequest } from "./pdf/ExportDialog";
 import { ProjectsView } from "./Projects/ProjectsView";
 import { SettingsView } from "./Settings/SettingsView";
 import "./home.css";
+
+// Before the first render, so the window never flashes the wrong theme.
+initTheme();
 
 type Tab = "dashboard" | "projects" | "settings";
 
@@ -41,7 +53,31 @@ export function HomeApp() {
     noteTimer.current = window.setTimeout(() => setExportNote(null), 4000);
   }
 
-  async function handleExportPdf(options: ExportOptions) {
+  async function exportSheet(request: ExportRequest, format: "csv" | "xlsx") {
+    const today = new Date().toISOString().slice(0, 10);
+    const path = await save({
+      title: "Esporta",
+      defaultPath: `Pulse-sessioni-${today}.${format}`,
+      filters: [
+        format === "csv"
+          ? { name: "CSV", extensions: ["csv"] }
+          : { name: "Excel", extensions: ["xlsx"] },
+      ],
+    });
+    if (!path) {
+      return "cancelled" as const;
+    }
+    const written = await exportSessions(
+      path,
+      format,
+      request.range?.from ?? null,
+      request.range?.to ?? null,
+      request.projectId,
+    );
+    return written ? ("saved" as const) : ("empty" as const);
+  }
+
+  async function handleExport(request: ExportRequest) {
     setExportDialogOpen(false);
     if (exporting) {
       return;
@@ -52,17 +88,21 @@ export function HomeApp() {
       // the Home bundle, and export is a rare action — no reason for the
       // window to parse them at startup. (The type-only import above is
       // erased at compile time and doesn't pull the module in.)
-      const { exportPdfReport } = await import("./pdf/exportPdf");
-      const outcome = await exportPdfReport(options);
+      const outcome =
+        request.format === "pdf"
+          ? await import("./pdf/exportPdf").then(({ exportPdfReport }) =>
+              exportPdfReport({ range: request.range, projectId: request.projectId }),
+            )
+          : await exportSheet(request, request.format);
       if (outcome === "empty") {
         showNote(
-          options.projectId === null
+          request.projectId === null
             ? "Nessun dato da esportare nel periodo scelto."
             : "Nessun dato per questo progetto nel periodo scelto.",
         );
       }
     } catch (error) {
-      console.error("Esportazione PDF non riuscita", error);
+      console.error("Esportazione non riuscita", error);
       showNote("Errore durante l'esportazione.");
     } finally {
       setExporting(false);
@@ -100,6 +140,7 @@ export function HomeApp() {
           className={tab === "dashboard" ? "home-tab active" : "home-tab"}
           onClick={() => setTab("dashboard")}
         >
+          <IconChart size={15} />
           Dashboard
         </button>
         <button
@@ -107,6 +148,7 @@ export function HomeApp() {
           className={tab === "projects" ? "home-tab active" : "home-tab"}
           onClick={() => setTab("projects")}
         >
+          <IconTag size={15} />
           Progetti
         </button>
         <button
@@ -114,6 +156,7 @@ export function HomeApp() {
           className={tab === "settings" ? "home-tab active" : "home-tab"}
           onClick={() => setTab("settings")}
         >
+          <IconSettingsGear size={15} />
           Impostazioni
         </button>
         <div className="home-tabs-actions">
@@ -124,8 +167,8 @@ export function HomeApp() {
             onClick={() => setExportDialogOpen(true)}
             disabled={exporting}
           >
-            <IconPdf size={15} />
-            {exporting ? "Esportazione…" : "Esporta PDF"}
+            <IconExport size={15} />
+            {exporting ? "Esportazione…" : "Esporta"}
           </button>
         </div>
       </nav>
@@ -135,9 +178,9 @@ export function HomeApp() {
         {tab === "settings" && <SettingsView />}
       </div>
       {exportDialogOpen && (
-        <ExportPdfDialog
+        <ExportDialog
           onCancel={() => setExportDialogOpen(false)}
-          onConfirm={(options) => void handleExportPdf(options)}
+          onConfirm={(request) => void handleExport(request)}
         />
       )}
     </div>

@@ -1,7 +1,23 @@
 import { useState } from "react";
+import type { ReactNode } from "react";
+import { IconPdf, IconSheet } from "../../components/icons";
 import { useProjects } from "../../lib/useProjects";
 import { loadSavedFilter } from "../Dashboard/DashboardView";
-import type { ExportOptions, ExportRange } from "./exportPdf";
+import type { ExportRange } from "./exportPdf";
+
+export type ExportFormat = "pdf" | "csv" | "xlsx";
+
+export type ExportRequest = {
+  format: ExportFormat;
+  range: ExportRange | null;
+  projectId: number | null;
+};
+
+const FORMAT_OPTIONS: { id: ExportFormat; label: string; hint: string; icon: ReactNode }[] = [
+  { id: "pdf", label: "PDF", hint: "Report con grafici e riepiloghi", icon: <IconPdf size={18} /> },
+  { id: "xlsx", label: "Excel", hint: "Sessioni, riepilogo mensile e progetti", icon: <IconSheet size={18} /> },
+  { id: "csv", label: "CSV", hint: "Elenco sessioni, per altri strumenti", icon: <IconSheet size={18} /> },
+];
 
 type PeriodId = "all" | "year" | "months6" | "months3" | "custom";
 
@@ -17,9 +33,9 @@ function isoDate(date: Date) {
   return date.toISOString().slice(0, 10);
 }
 
-type ExportPdfDialogProps = {
+type ExportDialogProps = {
   onCancel: () => void;
-  onConfirm: (options: ExportOptions) => void;
+  onConfirm: (request: ExportRequest) => void;
 };
 
 // Starts on whatever project the dashboard is filtered to — the usual flow
@@ -29,8 +45,9 @@ function initialProjectId() {
   return saved.metric === "project" ? saved.filterId : null;
 }
 
-export function ExportPdfDialog({ onCancel, onConfirm }: ExportPdfDialogProps) {
+export function ExportDialog({ onCancel, onConfirm }: ExportDialogProps) {
   const projects = useProjects();
+  const [format, setFormat] = useState<ExportFormat>("pdf");
   const [period, setPeriod] = useState<PeriodId>("all");
   const [customFrom, setCustomFrom] = useState("");
   const [customTo, setCustomTo] = useState("");
@@ -69,8 +86,23 @@ export function ExportPdfDialog({ onCancel, onConfirm }: ExportPdfDialogProps) {
         aria-labelledby="export-dialog-title"
         onClick={(event) => event.stopPropagation()}
       >
-        <h2 id="export-dialog-title">Esporta report PDF</h2>
-        <p>Scegli cosa includere nel report.</p>
+        <h2 id="export-dialog-title">Esporta</h2>
+        <div className="export-formats" role="radiogroup" aria-label="Formato">
+          {FORMAT_OPTIONS.map((option) => (
+            <button
+              key={option.id}
+              type="button"
+              role="radio"
+              aria-checked={format === option.id}
+              className={format === option.id ? "export-format active" : "export-format"}
+              onClick={() => setFormat(option.id)}
+            >
+              {option.icon}
+              <strong>{option.label}</strong>
+              <span>{option.hint}</span>
+            </button>
+          ))}
+        </div>
         <label className="export-project-field">
           <span>Progetto</span>
           <select
@@ -132,7 +164,7 @@ export function ExportPdfDialog({ onCancel, onConfirm }: ExportPdfDialogProps) {
             type="button"
             className="primary"
             disabled={!canSave}
-            onClick={() => onConfirm({ range: resolveRange(), projectId: selectedProjectId })}
+            onClick={() => onConfirm({ format, range: resolveRange(), projectId: selectedProjectId })}
           >
             Salva
           </button>

@@ -13,3 +13,5 @@ export { IconInfo } from "./IconInfo";
 export { IconLock } from "./IconLock";
 export { IconPdf } from "./IconPdf";
 export type { IconProps } from "./types";
+export { IconExport } from "./IconExport";
+export { IconSheet } from "./IconSheet";

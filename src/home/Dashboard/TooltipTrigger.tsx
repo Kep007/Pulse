@@ -9,6 +9,7 @@ type TooltipTriggerProps = {
   style?: CSSProperties;
   ariaLabel: string;
   renderTooltip: () => ReactNode;
+  onClick?: () => void;
   children?: ReactNode;
 };
 
@@ -33,6 +34,7 @@ export function TooltipTrigger({
   style,
   ariaLabel,
   renderTooltip,
+  onClick,
   children,
 }: TooltipTriggerProps) {
   const ref = useRef<HTMLButtonElement>(null);
@@ -92,6 +94,13 @@ export function TooltipTrigger({
         onFocus={show}
         onMouseLeave={hide}
         onBlur={hide}
+        onClick={
+          onClick &&
+          (() => {
+            hide();
+            onClick();
+          })
+        }
       >
         {children}
       </button>

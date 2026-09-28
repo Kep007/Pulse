@@ -1,7 +1,16 @@
 import { listen } from "@tauri-apps/api/event";
 import { useEffect, useMemo, useState } from "react";
 import { IconChevron } from "../../components/icons";
-import { getActivityDetectionEnabled, getDailySummary, getMonthlySummary, listActivityTypes } from "../../lib/tauri";
+import {
+  getActivityDetectionEnabled,
+  getDailySummary,
+  getFocusStats,
+  getMonthlySummary,
+  listActivityTypes,
+} from "../../lib/tauri";
+import type { FocusStats } from "../../lib/types";
+import { FocusCard } from "./FocusCard";
+import { ProjectComparison } from "./ProjectComparison";
 import type { ActivityTypeDto, BreakdownMetric, DayBucket, MonthBucket } from "../../lib/types";
 import { useProjects } from "../../lib/useProjects";
 import { projectColorMap } from "../../lib/projectColors";
@@ -17,6 +26,9 @@ import { TimeBreakdownBar } from "./TimeBreakdownBar";
 import { TopEntriesRanking } from "./TopEntriesRanking";
 
 const MONTHLY_MONTHS = 12;
+// Focus quality is about how you work *lately* — a year-old habit says
+// little about today.
+const FOCUS_DAYS = 90;
 // Far enough back to cover any realistic history without a real "first ever
 // entry" lookup — the daily/monthly summary commands only return buckets
 // that actually have data, so this is just a safe lower bound, not a cost.
@@ -46,6 +58,7 @@ export function loadSavedFilter(): { metric: BreakdownMetric; filterId: number |
 export function DashboardView() {
   const [allTimeDailyBuckets, setAllTimeDailyBuckets] = useState<DayBucket[]>([]);
   const [allTimeMonthlyBuckets, setAllTimeMonthlyBuckets] = useState<MonthBucket[]>([]);
+  const [focusStats, setFocusStats] = useState<FocusStats | null>(null);
   const projects = useProjects();
   const [activityTypes, setActivityTypes] = useState<ActivityTypeDto[]>([]);
   const [activityEnabled, setActivityEnabled] = useState(false);
@@ -104,6 +117,7 @@ export function DashboardView() {
       getMonthlySummary(ALL_TIME_FROM, toIso).then(
         (value) => !cancelled && setAllTimeMonthlyBuckets(value),
       );
+      getFocusStats(FOCUS_DAYS).then((value) => !cancelled && setFocusStats(value));
     }
 
     loadAll();
@@ -227,6 +241,36 @@ export function DashboardView() {
           emptyLabel={noDataLabel}
         />
       </section>
+
+      {metric === "project" && (
+        <section className="dashboard-card">
+          <div className="dashboard-card-header">
+            <DashboardCardTitle
+              title="Concentrazione"
+              info={`Come lavori, sugli ultimi ${FOCUS_DAYS} giorni. Una sessione è tempo continuo sullo stesso progetto (una pausa di oltre 5 minuti o un cambio di progetto la chiude). Indice di concentrazione: quota di tempo passata in sessioni di almeno 25 minuti. Sessioni interrotte: quelle sotto i 10 minuti. Cambi di progetto: quante volte all'ora salti da un progetto a un altro senza una vera pausa in mezzo.`}
+            />
+          </div>
+          <FocusCard stats={focusStats} projectId={filterId} />
+        </section>
+      )}
+
+      {metric === "project" && (
+        <section className="dashboard-card">
+          <div className="dashboard-card-header">
+            <DashboardCardTitle
+              title="Confronto progetti"
+              info="Quanto pesa ogni progetto sul tuo mese: la media delle ore nei mesi in cui ci hai lavorato, con tra parentesi il mese più leggero e il più pesante — un'indicazione, non una cifra fissa, perché dipende dalle richieste del cliente. Ultimi 3 mesi mostra la tendenza recente (↑ in crescita, ↓ in calo rispetto alla media). Il mese in corso non è conteggiato finché non è finito."
+            />
+          </div>
+          <ProjectComparison
+            projects={projects}
+            monthlyBuckets={allTimeMonthlyBuckets}
+            focus={focusStats}
+            colorById={projectColors}
+            highlightId={filterId}
+          />
+        </section>
+      )}
 
       <section className="dashboard-card">
         <div className="dashboard-card-header">

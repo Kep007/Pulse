@@ -49,3 +49,23 @@ pub fn confirm_pending_suggestion(app: AppHandle) -> TrackingState {
 pub fn deny_pending_suggestion(app: AppHandle) -> TrackingState {
     detector::deny_pending_suggestion(&app)
 }
+
+#[tauri::command]
+pub fn continue_through_break(app: AppHandle) -> TrackingState {
+    detector::continue_through_break(&app)
+}
+
+#[tauri::command]
+pub fn dismiss_break_prompt(app: AppHandle) -> TrackingState {
+    detector::dismiss_break_prompt(&app)
+}
+
+#[tauri::command]
+pub fn accept_resume_offer(app: AppHandle) -> TrackingState {
+    detector::accept_resume_offer(&app)
+}
+
+#[tauri::command]
+pub fn decline_resume_offer(app: AppHandle) -> TrackingState {
+    detector::decline_resume_offer(&app)
+}

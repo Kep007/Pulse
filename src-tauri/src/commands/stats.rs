@@ -13,7 +13,7 @@ struct Accumulator {
     by_activity: HashMap<i64, i64>,
 }
 
-fn parse_boundary(date: &str, end_exclusive: bool) -> Result<DateTime<Utc>, String> {
+pub(crate) fn parse_boundary(date: &str, end_exclusive: bool) -> Result<DateTime<Utc>, String> {
     let naive_date = NaiveDate::parse_from_str(date, "%Y-%m-%d").map_err(|err| err.to_string())?;
     let naive_date = if end_exclusive {
         naive_date + Duration::days(1)
@@ -26,14 +26,14 @@ fn parse_boundary(date: &str, end_exclusive: bool) -> Result<DateTime<Utc>, Stri
     Ok(DateTime::from_naive_utc_and_offset(naive_datetime, Utc))
 }
 
-fn project_lookup(conn: &Connection) -> rusqlite::Result<HashMap<i64, ProjectDto>> {
+pub(crate) fn project_lookup(conn: &Connection) -> rusqlite::Result<HashMap<i64, ProjectDto>> {
     Ok(db::list_projects(conn)?
         .into_iter()
         .map(|project| (project.id, project))
         .collect())
 }
 
-fn activity_lookup(conn: &Connection) -> rusqlite::Result<HashMap<i64, ActivityTypeDto>> {
+pub(crate) fn activity_lookup(conn: &Connection) -> rusqlite::Result<HashMap<i64, ActivityTypeDto>> {
     Ok(db::list_activity_types(conn)?
         .into_iter()
         .map(|activity_type| (activity_type.id, activity_type))
@@ -313,6 +313,7 @@ pub fn get_day_detail(state: State<AppState>, date: String) -> Result<Vec<Segmen
                 .unwrap_or_else(|| (now - started_at_dt).num_seconds().max(0));
 
             SegmentDto {
+                id: segment.id,
                 started_at: segment.started_at.clone(),
                 ended_at: segment.ended_at.clone(),
                 duration_seconds,
@@ -323,4 +324,70 @@ pub fn get_day_detail(state: State<AppState>, date: String) -> Result<Vec<Segmen
             }
         })
         .collect())
+}
+
+fn focus_totals_dto(totals: &crate::focus::FocusTotals) -> crate::models::FocusTotalsDto {
+    crate::models::FocusTotalsDto {
+        tracked_seconds: totals.tracked_seconds,
+        deep_work_seconds: totals.deep_work_seconds,
+        sessions: totals.sessions,
+        short_sessions: totals.short_sessions,
+        switches: totals.switches,
+    }
+}
+
+/// Focus-quality metrics (see `crate::focus`) over the last `days` days.
+#[tauri::command]
+pub fn get_focus_stats(
+    state: State<AppState>,
+    days: i64,
+) -> Result<crate::models::FocusStatsDto, String> {
+    let days = days.clamp(1, 3650);
+    let conn = state.db.lock().unwrap();
+    let now = Utc::now();
+    let raw = db::segments_between(&conn, now - Duration::days(days), now + Duration::seconds(1))
+        .map_err(|err| err.to_string())?;
+    let projects = project_lookup(&conn).map_err(|err| err.to_string())?;
+    drop(conn);
+
+    let segments: Vec<crate::focus::FocusSegment> = raw
+        .iter()
+        .filter_map(|segment| {
+            let start = DateTime::parse_from_rfc3339(&segment.started_at).ok()?.with_timezone(&Utc);
+            let end = match &segment.ended_at {
+                Some(ended_at) => DateTime::parse_from_rfc3339(ended_at).ok()?.with_timezone(&Utc),
+                None => now,
+            };
+            Some(crate::focus::FocusSegment {
+                project_id: segment.project_id,
+                start,
+                end,
+                seconds: segment
+                    .duration_seconds
+                    .unwrap_or_else(|| (now - start).num_seconds().max(0)),
+            })
+        })
+        .collect();
+    let report = crate::focus::analyze(&segments);
+
+    let mut project_rows: Vec<crate::models::ProjectFocusDto> = report
+        .by_project
+        .iter()
+        .filter_map(|(id, totals)| {
+            let project = projects.get(id)?;
+            Some(crate::models::ProjectFocusDto {
+                id: *id,
+                name: project.name.clone(),
+                color: project.color.clone(),
+                totals: focus_totals_dto(totals),
+            })
+        })
+        .collect();
+    project_rows.sort_by(|a, b| b.totals.tracked_seconds.cmp(&a.totals.tracked_seconds));
+
+    Ok(crate::models::FocusStatsDto {
+        days,
+        overall: focus_totals_dto(&report.overall),
+        projects: project_rows,
+    })
 }

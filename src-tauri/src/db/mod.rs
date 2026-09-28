@@ -476,6 +476,30 @@ pub fn seconds_tracked_since(
     }
 }
 
+/// Seconds per project since `since`, the running segment included up to
+/// `now`, largest first. Rows without a project are summed under None.
+pub fn project_totals_since(
+    conn: &Connection,
+    since: DateTime<Utc>,
+    now: DateTime<Utc>,
+) -> rusqlite::Result<Vec<(Option<i64>, i64)>> {
+    let mut stmt = conn.prepare(
+        "SELECT project_id,
+                SUM(COALESCE(duration_seconds,
+                    MAX(0, CAST((julianday(?2) - julianday(started_at)) * 86400 AS INTEGER)))) AS seconds
+         FROM time_entries
+         WHERE started_at >= ?1
+         GROUP BY project_id
+         ORDER BY seconds DESC",
+    )?;
+    let rows = stmt
+        .query_map([since.to_rfc3339(), now.to_rfc3339()], |row| {
+            Ok((row.get(0)?, row.get(1)?))
+        })?
+        .collect::<rusqlite::Result<_>>()?;
+    Ok(rows)
+}
+
 /// Closes the current open segment (if any) without opening a new one —
 /// used when the system goes idle, so the idle stretch is excluded from
 /// every project's tracked time instead of either the previous project
@@ -492,6 +516,7 @@ pub fn close_open_segment(conn: &Connection, at: DateTime<Utc>) -> rusqlite::Res
 }
 
 pub struct RawSegment {
+    pub id: i64,
     pub started_at: String,
     pub ended_at: Option<String>,
     pub duration_seconds: Option<i64>,
@@ -508,7 +533,7 @@ pub fn segments_between(
     to: DateTime<Utc>,
 ) -> rusqlite::Result<Vec<RawSegment>> {
     let mut stmt = conn.prepare(
-        "SELECT started_at, ended_at, duration_seconds, project_id, activity_type_id
+        "SELECT id, started_at, ended_at, duration_seconds, project_id, activity_type_id
          FROM time_entries
          WHERE started_at >= ?1 AND started_at < ?2
          ORDER BY started_at",
@@ -518,16 +543,182 @@ pub fn segments_between(
             rusqlite::params![from.to_rfc3339(), to.to_rfc3339()],
             |row| {
                 Ok(RawSegment {
-                    started_at: row.get(0)?,
-                    ended_at: row.get(1)?,
-                    duration_seconds: row.get(2)?,
-                    project_id: row.get(3)?,
-                    activity_type_id: row.get(4)?,
+                    id: row.get(0)?,
+                    started_at: row.get(1)?,
+                    ended_at: row.get(2)?,
+                    duration_seconds: row.get(3)?,
+                    project_id: row.get(4)?,
+                    activity_type_id: row.get(5)?,
                 })
             },
         )?
         .collect::<rusqlite::Result<_>>()?;
     Ok(rows)
+}
+
+#[derive(Debug, PartialEq)]
+pub enum EditError {
+    InvalidRange,
+    InFuture,
+    OverlapsRunningSession,
+    Db(String),
+}
+
+impl From<rusqlite::Error> for EditError {
+    fn from(err: rusqlite::Error) -> Self {
+        EditError::Db(err.to_string())
+    }
+}
+
+impl std::fmt::Display for EditError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            EditError::InvalidRange => write!(f, "L'orario di fine deve essere dopo l'inizio."),
+            EditError::InFuture => write!(f, "Non puoi registrare tempo nel futuro."),
+            EditError::OverlapsRunningSession => {
+                write!(f, "L'intervallo si sovrappone alla sessione in corso.")
+            }
+            EditError::Db(err) => write!(f, "{err}"),
+        }
+    }
+}
+
+fn parse_utc(value: &str) -> Option<DateTime<Utc>> {
+    DateTime::parse_from_rfc3339(value)
+        .ok()
+        .map(|dt| dt.with_timezone(&Utc))
+}
+
+/// Writes a hand-entered stretch of time — "I was on X from 15:00 to 15:40"
+/// — the way a calendar does: whatever else was recorded in that range is
+/// cut away (trimmed, split or removed) so the new block owns it outright
+/// and no minute is ever counted twice. `replace_ids` are the rows being
+/// edited, removed first. `project_id`/`activity_type_id` both None means
+/// "just clear this range".
+///
+/// The still-open segment is never touched: a range reaching into it is
+/// refused rather than silently cutting the running timer.
+pub fn write_time_range(
+    conn: &Connection,
+    replace_ids: &[i64],
+    project_id: Option<i64>,
+    activity_type_id: Option<i64>,
+    start: DateTime<Utc>,
+    end: DateTime<Utc>,
+    now: DateTime<Utc>,
+) -> Result<(), EditError> {
+    if start >= end {
+        return Err(EditError::InvalidRange);
+    }
+    if end > now {
+        return Err(EditError::InFuture);
+    }
+    let tx = conn.unchecked_transaction()?;
+
+    let open_start: Option<String> = tx
+        .query_row(
+            "SELECT started_at FROM time_entries WHERE ended_at IS NULL",
+            [],
+            |row| row.get(0),
+        )
+        .optional()?;
+    if let Some(open_start) = open_start.as_deref().and_then(parse_utc) {
+        if open_start < end {
+            return Err(EditError::OverlapsRunningSession);
+        }
+    }
+
+    for id in replace_ids {
+        tx.execute(
+            "DELETE FROM time_entries WHERE id = ?1 AND ended_at IS NOT NULL",
+            [id],
+        )?;
+    }
+
+    // Coarse string prefilter (a day either side), exact overlap in Rust.
+    let overlapping: Vec<(i64, String, String, i64)> = {
+        let mut stmt = tx.prepare(
+            "SELECT id, started_at, ended_at, COALESCE(duration_seconds, 0)
+             FROM time_entries
+             WHERE ended_at IS NOT NULL AND started_at < ?2 AND ended_at > ?1",
+        )?;
+        let rows = stmt
+            .query_map(
+                [
+                    (start - chrono::Duration::days(1)).to_rfc3339(),
+                    (end + chrono::Duration::days(1)).to_rfc3339(),
+                ],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+            )?
+            .collect::<rusqlite::Result<_>>()?;
+        rows
+    };
+
+    for (id, started_at, ended_at, duration) in overlapping {
+        let (Some(s), Some(e)) = (parse_utc(&started_at), parse_utc(&ended_at)) else {
+            continue;
+        };
+        if e <= start || s >= end {
+            continue;
+        }
+        // Compacted rows can be shorter than their wall-clock span; never
+        // hand a piece more seconds than the row actually carried.
+        let capped = |span: chrono::Duration, budget: i64| span.num_seconds().clamp(0, budget.max(0));
+        if s >= start && e <= end {
+            tx.execute("DELETE FROM time_entries WHERE id = ?1", [id])?;
+        } else if s < start && e > end {
+            let head = capped(start - s, duration);
+            let tail = capped(e - end, duration - head);
+            tx.execute(
+                "UPDATE time_entries SET ended_at = ?1, duration_seconds = ?2 WHERE id = ?3",
+                rusqlite::params![start.to_rfc3339(), head, id],
+            )?;
+            tx.execute(
+                "INSERT INTO time_entries (project_id, activity_type_id, source, started_at, ended_at, duration_seconds)
+                 SELECT project_id, activity_type_id, source, ?1, ?2, ?3 FROM time_entries WHERE id = ?4",
+                rusqlite::params![end.to_rfc3339(), ended_at, tail, id],
+            )?;
+        } else if s < start {
+            tx.execute(
+                "UPDATE time_entries SET ended_at = ?1, duration_seconds = ?2 WHERE id = ?3",
+                rusqlite::params![start.to_rfc3339(), capped(start - s, duration), id],
+            )?;
+        } else {
+            tx.execute(
+                "UPDATE time_entries SET started_at = ?1, duration_seconds = ?2 WHERE id = ?3",
+                rusqlite::params![end.to_rfc3339(), capped(e - end, duration), id],
+            )?;
+        }
+    }
+
+    if project_id.is_some() || activity_type_id.is_some() {
+        tx.execute(
+            "INSERT INTO time_entries (project_id, activity_type_id, source, started_at, ended_at, duration_seconds)
+             VALUES (?1, ?2, 'manual', ?3, ?4, ?5)",
+            rusqlite::params![
+                project_id,
+                activity_type_id,
+                start.to_rfc3339(),
+                end.to_rfc3339(),
+                (end - start).num_seconds(),
+            ],
+        )?;
+    }
+
+    tx.commit()?;
+    Ok(())
+}
+
+/// Removes closed segments by id. The running one is never deleted here.
+pub fn delete_time_entries(conn: &Connection, ids: &[i64]) -> rusqlite::Result<()> {
+    let tx = conn.unchecked_transaction()?;
+    for id in ids {
+        tx.execute(
+            "DELETE FROM time_entries WHERE id = ?1 AND ended_at IS NOT NULL",
+            [id],
+        )?;
+    }
+    tx.commit()
 }
 
 /// History older than this many days is compacted by `compact_history`.
@@ -865,6 +1056,82 @@ mod tests {
         drop(copy);
         drop(conn);
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    fn rows(conn: &Connection) -> Vec<(Option<i64>, String, String, i64)> {
+        let mut stmt = conn
+            .prepare(
+                "SELECT project_id, started_at, ended_at, duration_seconds FROM time_entries
+                 WHERE ended_at IS NOT NULL ORDER BY started_at",
+            )
+            .unwrap();
+        stmt.query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)))
+            .unwrap()
+            .collect::<rusqlite::Result<_>>()
+            .unwrap()
+    }
+
+    #[test]
+    fn written_range_cuts_away_whatever_it_overlaps() {
+        use chrono::TimeZone;
+        let conn = test_conn();
+        let at = |h, m| Utc.with_ymd_and_hms(2026, 9, 28, h, m, 0).unwrap();
+        insert_closed(&conn, Some(1), at(14, 0), 3600, None); // 14:00–15:00
+        insert_closed(&conn, Some(2), at(15, 0), 1800, None); // 15:00–15:30
+        insert_closed(&conn, Some(3), at(15, 30), 3600, None); // 15:30–16:30
+
+        // "I was on project 9 from 14:30 to 15:45."
+        write_time_range(&conn, &[], Some(9), None, at(14, 30), at(15, 45), at(18, 0)).unwrap();
+
+        let result = rows(&conn);
+        let summary: Vec<(Option<i64>, i64)> = result.iter().map(|r| (r.0, r.3)).collect();
+        assert_eq!(summary, vec![(Some(1), 1800), (Some(9), 4500), (Some(3), 2700)]);
+        assert_eq!(result[0].2, at(14, 30).to_rfc3339());
+        assert_eq!(result[2].1, at(15, 45).to_rfc3339());
+    }
+
+    #[test]
+    fn range_inside_a_segment_splits_it() {
+        use chrono::TimeZone;
+        let conn = test_conn();
+        let at = |h, m| Utc.with_ymd_and_hms(2026, 9, 28, h, m, 0).unwrap();
+        insert_closed(&conn, Some(1), at(9, 0), 3 * 3600, None); // 9–12
+
+        write_time_range(&conn, &[], Some(2), None, at(10, 0), at(10, 30), at(18, 0)).unwrap();
+
+        let summary: Vec<(Option<i64>, i64)> = rows(&conn).iter().map(|r| (r.0, r.3)).collect();
+        assert_eq!(summary, vec![(Some(1), 3600), (Some(2), 1800), (Some(1), 5400)]);
+    }
+
+    #[test]
+    fn editing_replaces_the_original_rows_and_never_touches_the_running_one() {
+        use chrono::TimeZone;
+        let conn = test_conn();
+        let at = |h, m| Utc.with_ymd_and_hms(2026, 9, 28, h, m, 0).unwrap();
+        insert_closed(&conn, Some(1), at(9, 0), 3600, None);
+        let id: i64 = conn.query_row("SELECT id FROM time_entries", [], |r| r.get(0)).unwrap();
+        transition_segment(&conn, Some(5), None, Source::Auto, at(12, 0), None, None).unwrap();
+
+        write_time_range(&conn, &[id], Some(2), None, at(9, 15), at(10, 0), at(13, 0)).unwrap();
+        let summary: Vec<(Option<i64>, i64)> = rows(&conn).iter().map(|r| (r.0, r.3)).collect();
+        assert_eq!(summary, vec![(Some(2), 2700)]);
+
+        assert_eq!(
+            write_time_range(&conn, &[], Some(2), None, at(11, 0), at(12, 30), at(13, 0)),
+            Err(EditError::OverlapsRunningSession)
+        );
+        assert_eq!(
+            write_time_range(&conn, &[], Some(2), None, at(11, 0), at(10, 0), at(13, 0)),
+            Err(EditError::InvalidRange)
+        );
+        assert_eq!(
+            write_time_range(&conn, &[], Some(2), None, at(11, 0), at(11, 30), at(11, 10)),
+            Err(EditError::InFuture)
+        );
+        let open: i64 = conn
+            .query_row("SELECT COUNT(*) FROM time_entries WHERE ended_at IS NULL", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(open, 1);
     }
 
     #[test]

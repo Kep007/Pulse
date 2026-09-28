@@ -1,12 +1,14 @@
+pub mod breaks;
 pub mod browser_signal;
 mod matcher;
 pub mod mouse_hook;
 mod win;
 
 use crate::db;
-use crate::models::{PendingSuggestion, Source, TrackingState};
+use crate::models::{BreakPromptDto, PendingSuggestion, ResumeOfferDto, Source, TrackingState};
+use breaks::{BreakEvent, BreakSchedule, BreakTracker, DayRecapSettings, ForgottenWork};
 use browser_signal::{BrowserSignal, MatchIntent};
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, Datelike, Local, TimeZone, Timelike, Utc};
 use rusqlite::Connection;
 use std::collections::{HashMap, HashSet};
 use std::sync::Mutex;
@@ -99,6 +101,21 @@ pub struct DetectorState {
     /// this session unless the user picks that project/activity by hand.
     /// In-memory only, like `idle_lock`, so a restart gives them a fresh start.
     muted: HashSet<Suggestion>,
+    /// The user's scheduled daily break (lunch) — see `breaks`. Loaded from
+    /// the settings store at startup, changed from Settings.
+    break_schedule: BreakSchedule,
+    break_tracker: BreakTracker,
+    /// Set while the "Pausa pranzo — continua a lavorare?" prompt is up;
+    /// holds the break's end (minutes since local midnight).
+    break_prompt: Option<u32>,
+    /// When the current pause began — used at a break's end to tell a pause
+    /// taken *for* the break (resume it) from an unrelated earlier one.
+    paused_at: Option<DateTime<Utc>>,
+    forgotten_work: ForgottenWork,
+    /// "You've been working on X since 15:02 — resume from there?"
+    resume_offer: Option<(Suggestion, DateTime<Utc>)>,
+    day_recap: DayRecapSettings,
+    recap_shown_on: Option<chrono::NaiveDate>,
 }
 
 impl DetectorState {
@@ -147,6 +164,14 @@ impl DetectorState {
             suppressed: None,
             ignored_counts: HashMap::new(),
             muted: HashSet::new(),
+            break_schedule: BreakSchedule::default(),
+            break_tracker: BreakTracker::default(),
+            break_prompt: None,
+            paused_at: None,
+            forgotten_work: ForgottenWork::default(),
+            resume_offer: None,
+            day_recap: DayRecapSettings::default(),
+            recap_shown_on: None,
         }
     }
 }
@@ -221,18 +246,280 @@ fn reassert_always_on_top(app: &AppHandle) {
     }
 }
 
+/// What the foreground window says the user is working on. None while
+/// Pulse's own windows are in front (never itself "an activity") or when the
+/// foreground can't be read.
+fn detect_foreground(state: &AppState) -> Option<(Suggestion, win::ForegroundInfo)> {
+    let info = win::read_foreground_info()?;
+    if info.process_name.eq_ignore_ascii_case("pulse") {
+        return None;
+    }
+
+    // The companion browser extension (if installed) can override what gets
+    // matched — e.g. a Pinterest pin's page title has nothing to do with
+    // project detection, or WhatsApp Web's contact name (never present in
+    // the OS window title, which stays "WhatsApp" regardless of which chat
+    // is open) is a better match target than the title itself. Absent the
+    // extension this is always `UseWindowTitle`, so behavior is unchanged.
+    let match_intent = {
+        let signal = state.browser_signal.lock().unwrap();
+        browser_signal::resolve_match_text(&info, signal.as_ref(), Instant::now())
+    };
+
+    let (project, activity) = if match_intent == MatchIntent::Skip {
+        (None, None)
+    } else {
+        let text: &str = match &match_intent {
+            MatchIntent::UseText(text) => text,
+            _ => &info.window_title,
+        };
+        let matcher = state.matcher.lock().unwrap();
+        let activity_enabled = *state.activity_detection_enabled.lock().unwrap();
+        (
+            matcher.match_project(text, &info.process_name),
+            activity_enabled
+                .then(|| matcher.match_activity(text, &info.process_name))
+                .flatten(),
+        )
+    };
+    Some((Suggestion { project, activity }, info))
+}
+
+/// Minutes since local midnight on `date` → that instant in UTC.
+fn local_minute_to_utc(date: chrono::NaiveDate, minute: u32) -> Option<DateTime<Utc>> {
+    let naive = date.and_hms_opt(minute / 60, minute % 60, 0)?;
+    Local
+        .from_local_datetime(&naive)
+        .earliest()
+        .map(|local| local.with_timezone(&Utc))
+}
+
+fn format_minute(minute: u32) -> String {
+    format!("{:02}:{:02}", minute / 60, minute % 60)
+}
+
+/// A pause that began this long before the break window still counts as
+/// "taken for the break" and gets resumed when it ends.
+const BREAK_EARLY_PAUSE_MINUTES: i64 = 30;
+
+/// Enters/leaves the user's scheduled break. Entering pauses whatever is
+/// being tracked and asks "continue working?" (for the days with extra
+/// work); leaving resumes a pause taken for the break — whether Pulse or the
+/// user started it — so forgetting to un-pause after lunch never costs time.
+fn handle_break_schedule(app: &AppHandle, state: &AppState, detector: &mut DetectorState) {
+    let local = Local::now();
+    let date = local.date_naive();
+    let event = detector.break_tracker.update(
+        &detector.break_schedule,
+        date,
+        local.weekday().num_days_from_monday(),
+        local.hour() * 60 + local.minute(),
+    );
+    let has_tracking = detector.stable_project.is_some() || detector.stable_activity.is_some();
+
+    match event {
+        BreakEvent::None => {}
+        BreakEvent::Started { end_minute } => {
+            if !has_tracking || detector.is_paused {
+                return;
+            }
+            let now = Utc::now();
+            let conn = state.db.lock().unwrap();
+            if !detector.is_idle {
+                if let Err(err) = db::close_open_segment(&conn, now) {
+                    log::error!("failed to close segment for scheduled break: {err}");
+                }
+            }
+            enter_pause(detector, now);
+            detector.break_prompt = Some(end_minute);
+            let tracking_state = build_tracking_state(&conn, detector);
+            drop(conn);
+            let _ = app.emit("state-changed", &tracking_state);
+        }
+        BreakEvent::Ended { start_minute } => {
+            let had_prompt = detector.break_prompt.take().is_some();
+            let break_start = local_minute_to_utc(date, start_minute);
+            let paused_for_break = match (detector.paused_at, break_start) {
+                (Some(paused_at), Some(start)) => {
+                    paused_at >= start - chrono::Duration::minutes(BREAK_EARLY_PAUSE_MINUTES)
+                }
+                _ => false,
+            };
+            if detector.is_paused && paused_for_break && has_tracking {
+                resume_after_break(app, state, detector);
+            } else if had_prompt {
+                let conn = state.db.lock().unwrap();
+                let tracking_state = build_tracking_state(&conn, detector);
+                drop(conn);
+                let _ = app.emit("state-changed", &tracking_state);
+            }
+        }
+    }
+}
+
+fn resume_after_break(app: &AppHandle, state: &AppState, detector: &mut DetectorState) {
+    detector.is_paused = false;
+    clear_prompts(detector);
+    let conn = state.db.lock().unwrap();
+    let label = detection_label(&conn, detector.stable_project, detector.stable_activity);
+
+    // Still away from the desk: go straight to idle rather than opening a
+    // segment the idle check would then close *before* its own start. The
+    // usual idle path reopens tracking the moment input comes back.
+    if !detector.idle_lock && win::system_idle_seconds() >= detector.idle_timeout_secs {
+        detector.is_idle = true;
+        let tracking_state = build_tracking_state(&conn, detector);
+        drop(conn);
+        let _ = app.emit("state-changed", &tracking_state);
+        emit_toast(app, &format!("Pausa finita · riprendo appena torni ({label})"));
+        return;
+    }
+
+    let (project, activity, source) = (detector.stable_project, detector.stable_activity, detector.source);
+    commit(app, detector, &conn, project, activity, source, None, None, Utc::now());
+    drop(conn);
+    emit_toast(app, &format!("Pausa finita · {label}"));
+}
+
+/// While paused, keeps watching the foreground: steady work on one project
+/// for a few minutes means the user most likely forgot to resume, so Pulse
+/// offers to — backdated to when that work started.
+fn watch_forgotten_work(
+    app: &AppHandle,
+    state: &AppState,
+    detector: &mut DetectorState,
+    idle_seconds: u64,
+    now: DateTime<Utc>,
+) {
+    let user_active = idle_seconds < detector.idle_timeout_secs;
+    let detected = if user_active {
+        detect_foreground(state)
+            .map(|(suggestion, _)| suggestion)
+            .filter(|suggestion| suggestion.project.is_some() || suggestion.activity.is_some())
+    } else {
+        None
+    };
+    let offer = detector.forgotten_work.observe(
+        detected.map(|suggestion| (suggestion.project, suggestion.activity)),
+        user_active,
+        now,
+    );
+    if let Some(((project, activity), since)) = offer {
+        detector.break_prompt = None;
+        detector.resume_offer = Some((Suggestion { project, activity }, since));
+        let conn = state.db.lock().unwrap();
+        let tracking_state = build_tracking_state(&conn, detector);
+        drop(conn);
+        let _ = app.emit("state-changed", &tracking_state);
+    }
+}
+
+/// "Rivedi la giornata": once per working day, at the configured time and
+/// only while the user is at the desk to see it, sums today per project and
+/// hands it to the toast window.
+fn maybe_show_day_recap(
+    app: &AppHandle,
+    state: &AppState,
+    detector: &mut DetectorState,
+    now: DateTime<Utc>,
+) {
+    let local = Local::now();
+    let date = local.date_naive();
+    let settings = detector.day_recap.clone();
+    if !settings.due(
+        &mut detector.recap_shown_on,
+        date,
+        local.weekday().num_days_from_monday(),
+        local.hour() * 60 + local.minute(),
+    ) {
+        return;
+    }
+    let Some(midnight) = local_minute_to_utc(date, 0) else {
+        return;
+    };
+    let conn = state.db.lock().unwrap();
+    let totals = match db::project_totals_since(&conn, midnight, now) {
+        Ok(totals) => totals,
+        Err(err) => {
+            log::error!("failed to build day recap: {err}");
+            return;
+        }
+    };
+    let total_seconds: i64 = totals.iter().map(|(_, seconds)| seconds).sum();
+    if total_seconds <= 0 {
+        return;
+    }
+    let projects = totals
+        .into_iter()
+        .filter_map(|(project_id, seconds)| {
+            let project = db::get_project(&conn, project_id?).ok().flatten()?;
+            Some(crate::models::BreakdownEntry {
+                id: project.id,
+                name: project.name,
+                color: project.color,
+                seconds,
+            })
+        })
+        .collect();
+    drop(conn);
+    let _ = app.emit(
+        "day-recap",
+        &crate::models::DayRecapDto {
+            total_seconds,
+            projects,
+        },
+    );
+}
+
+pub fn day_recap_settings(app: &AppHandle) -> DayRecapSettings {
+    let state = app.state::<AppState>();
+    let detector = state.detector.lock().unwrap();
+    detector.day_recap.clone()
+}
+
+/// Updates the live settings. Persistence is the caller's job.
+pub fn set_day_recap_settings(app: &AppHandle, settings: DayRecapSettings) {
+    let state = app.state::<AppState>();
+    let mut detector = state.detector.lock().unwrap();
+    detector.day_recap = settings;
+}
+
+fn enter_pause(detector: &mut DetectorState, at: DateTime<Utc>) {
+    detector.is_paused = true;
+    detector.is_idle = false;
+    detector.paused_at = Some(at);
+    detector.pending = None;
+    detector.candidate = None;
+    clear_prompts(detector);
+}
+
+/// Any change of tracking the user makes themselves answers every
+/// outstanding break/forgotten-work prompt.
+fn clear_prompts(detector: &mut DetectorState) {
+    detector.break_prompt = None;
+    detector.resume_offer = None;
+    detector.forgotten_work.reset();
+}
+
 fn tick(app: &AppHandle) {
     reassert_always_on_top(app);
 
     let state = app.state::<AppState>();
     let mut detector = state.detector.lock().unwrap();
 
-    if detector.is_paused {
-        return;
-    }
+    handle_break_schedule(app, &state, &mut detector);
 
     let idle_seconds = win::system_idle_seconds();
     let now = Utc::now();
+
+    if idle_seconds < detector.idle_timeout_secs {
+        maybe_show_day_recap(app, &state, &mut detector, now);
+    }
+
+    if detector.is_paused {
+        watch_forgotten_work(app, &state, &mut detector, idle_seconds, now);
+        return;
+    }
 
     // The idle lock (meeting/thinking mode) suppresses the whole idle branch:
     // no matter how long the system stays untouched, the open segment is left
@@ -285,47 +572,8 @@ fn tick(app: &AppHandle) {
         return;
     }
 
-    let Some(info) = win::read_foreground_info() else {
+    let Some((detected, info)) = detect_foreground(&state) else {
         return;
-    };
-
-    // Looking at Pulse's own windows (the widget, Home, a toast) is never
-    // itself "an activity" — ignore the tick entirely rather than let it
-    // count as detected idle time and reset the current segment.
-    if info.process_name.eq_ignore_ascii_case("pulse") {
-        return;
-    }
-
-    // The companion browser extension (if installed) can override what gets
-    // matched — e.g. a Pinterest pin's page title has nothing to do with
-    // project detection, or WhatsApp Web's contact name (never present in
-    // the OS window title, which stays "WhatsApp" regardless of which chat
-    // is open) is a better match target than the title itself. Absent the
-    // extension this is always `UseWindowTitle`, so behavior is unchanged.
-    let match_intent = {
-        let signal = state.browser_signal.lock().unwrap();
-        browser_signal::resolve_match_text(&info, signal.as_ref(), Instant::now())
-    };
-
-    let (detected_project, detected_activity) = if match_intent == MatchIntent::Skip {
-        (None, None)
-    } else {
-        let text: &str = match &match_intent {
-            MatchIntent::UseText(text) => text,
-            _ => &info.window_title,
-        };
-        let matcher = state.matcher.lock().unwrap();
-        let activity_enabled = *state.activity_detection_enabled.lock().unwrap();
-        (
-            matcher.match_project(text, &info.process_name),
-            activity_enabled
-                .then(|| matcher.match_activity(text, &info.process_name))
-                .flatten(),
-        )
-    };
-    let detected = Suggestion {
-        project: detected_project,
-        activity: detected_activity,
     };
 
     if detector.suppressed.as_ref() != Some(&detected) {
@@ -499,6 +747,8 @@ pub fn get_current_state(app: &AppHandle) -> TrackingState {
             segment_started_at: Utc::now().to_rfc3339(),
             today_seconds_before_segment: 0,
             pending: None,
+            resume_offer: None,
+            break_prompt: None,
         };
     };
     let detector = state.detector.lock().unwrap();
@@ -535,6 +785,7 @@ pub fn set_active_project(app: &AppHandle, project_id: Option<i64>) -> TrackingS
     let mut detector = state.detector.lock().unwrap();
     detector.pending = None;
     detector.is_paused = false;
+    clear_prompts(&mut detector);
     detector.unmute_matching(project_id, None);
     let conn = state.db.lock().unwrap();
     let activity_type_id = detector.stable_activity;
@@ -562,6 +813,7 @@ pub fn set_active_activity(app: &AppHandle, activity_type_id: Option<i64>) -> Tr
     let mut detector = state.detector.lock().unwrap();
     detector.pending = None;
     detector.is_paused = false;
+    clear_prompts(&mut detector);
     detector.unmute_matching(None, activity_type_id);
     let conn = state.db.lock().unwrap();
     let project_id = detector.stable_project;
@@ -591,11 +843,10 @@ pub fn set_active_activity(app: &AppHandle, activity_type_id: Option<i64>) -> Tr
 pub fn pause(app: &AppHandle) -> TrackingState {
     let state = app.state::<AppState>();
     let mut detector = state.detector.lock().unwrap();
-    detector.is_paused = true;
-    detector.pending = None;
-    detector.candidate = None;
+    let now = Utc::now();
+    enter_pause(&mut detector, now);
     let conn = state.db.lock().unwrap();
-    if let Err(err) = db::close_open_segment(&conn, Utc::now()) {
+    if let Err(err) = db::close_open_segment(&conn, now) {
         log::error!("failed to close segment on pause: {err}");
     }
     let result = build_tracking_state(&conn, &detector);
@@ -613,8 +864,10 @@ pub fn resume(app: &AppHandle) -> TrackingState {
     let state = app.state::<AppState>();
     let mut detector = state.detector.lock().unwrap();
     detector.is_paused = false;
+    detector.is_idle = false;
     detector.pending = None;
     detector.suppressed = None;
+    clear_prompts(&mut detector);
 
     let project_id = detector.stable_project;
     let activity_type_id = detector.stable_activity;
@@ -634,6 +887,111 @@ pub fn resume(app: &AppHandle) -> TrackingState {
     );
     emit_toast(app, "Tracciamento ripreso");
     result
+}
+
+/// "Pausa pranzo — continua a lavorare": the user is doing extra time, so
+/// tracking picks up again right away. The day's break doesn't fire again.
+pub fn continue_through_break(app: &AppHandle) -> TrackingState {
+    resume(app)
+}
+
+/// Acknowledges the break prompt without resuming — the pause stays.
+pub fn dismiss_break_prompt(app: &AppHandle) -> TrackingState {
+    let state = app.state::<AppState>();
+    let mut detector = state.detector.lock().unwrap();
+    detector.break_prompt = None;
+    let conn = state.db.lock().unwrap();
+    let result = build_tracking_state(&conn, &detector);
+    let _ = app.emit("state-changed", &result);
+    result
+}
+
+/// Resumes the offered forgotten work from when it actually started — the
+/// minutes spent working while still paused are credited, not lost.
+pub fn accept_resume_offer(app: &AppHandle) -> TrackingState {
+    let state = app.state::<AppState>();
+    let mut detector = state.detector.lock().unwrap();
+    let Some((suggestion, since)) = detector.resume_offer.take() else {
+        let conn = state.db.lock().unwrap();
+        return build_tracking_state(&conn, &detector);
+    };
+    detector.is_paused = false;
+    detector.is_idle = false;
+    detector.pending = None;
+    clear_prompts(&mut detector);
+    let conn = state.db.lock().unwrap();
+    let label = detection_label(&conn, suggestion.project, suggestion.activity);
+    let result = commit(
+        app,
+        &mut detector,
+        &conn,
+        suggestion.project,
+        suggestion.activity,
+        Source::Auto,
+        None,
+        None,
+        since,
+    );
+    drop(conn);
+    let since_local = since.with_timezone(&Local);
+    emit_toast(
+        app,
+        &format!("Ripreso dalle {} · {label}", format_minute(since_local.hour() * 60 + since_local.minute())),
+    );
+    result
+}
+
+/// "No" to the forgotten-work offer: stay paused, and don't offer that same
+/// project again during this pause.
+pub fn decline_resume_offer(app: &AppHandle) -> TrackingState {
+    let state = app.state::<AppState>();
+    let mut detector = state.detector.lock().unwrap();
+    if let Some((suggestion, _)) = detector.resume_offer.take() {
+        detector
+            .forgotten_work
+            .decline((suggestion.project, suggestion.activity));
+    }
+    let conn = state.db.lock().unwrap();
+    let result = build_tracking_state(&conn, &detector);
+    let _ = app.emit("state-changed", &result);
+    result
+}
+
+/// Recomputes "already tracked today" for the current project after the
+/// history was edited by hand, and pushes it to the widget.
+pub fn refresh_today_total(app: &AppHandle) {
+    let state = app.state::<AppState>();
+    let mut detector = state.detector.lock().unwrap();
+    let conn = state.db.lock().unwrap();
+    let at = detector.segment_started_at;
+    let today_start = at
+        .date_naive()
+        .and_hms_opt(0, 0, 0)
+        .map(|naive| DateTime::from_naive_utc_and_offset(naive, Utc))
+        .unwrap_or(at);
+    detector.today_seconds_before_segment = db::seconds_tracked_since(
+        &conn,
+        detector.stable_project,
+        detector.stable_activity,
+        today_start,
+    )
+    .unwrap_or(0);
+    let tracking_state = build_tracking_state(&conn, &detector);
+    drop(conn);
+    let _ = app.emit("state-changed", &tracking_state);
+}
+
+pub fn break_schedule(app: &AppHandle) -> BreakSchedule {
+    let state = app.state::<AppState>();
+    let detector = state.detector.lock().unwrap();
+    detector.break_schedule.clone()
+}
+
+/// Updates the live schedule. Persistence is the caller's job.
+pub fn set_break_schedule(app: &AppHandle, schedule: BreakSchedule) {
+    let state = app.state::<AppState>();
+    let mut detector = state.detector.lock().unwrap();
+    detector.break_schedule = schedule;
 }
 
 /// Engages or releases the idle lock (see `DetectorState::idle_lock`).
@@ -739,11 +1097,24 @@ pub fn confirm_pending_if_any(app: &AppHandle) {
     let Some(state) = app.try_state::<AppState>() else {
         return;
     };
-    {
+    let (has_offer, has_break_prompt, has_pending) = {
         let detector = state.detector.lock().unwrap();
-        if detector.pending.is_none() {
-            return;
-        }
+        (
+            detector.resume_offer.is_some(),
+            detector.break_prompt.is_some(),
+            detector.pending.is_some(),
+        )
+    };
+    if has_offer {
+        let _ = accept_resume_offer(app);
+        return;
+    }
+    if has_break_prompt {
+        let _ = continue_through_break(app);
+        return;
+    }
+    if !has_pending {
+        return;
     }
     // Tiny race window between the check and this call is harmless:
     // confirm_pending_suggestion re-checks `pending` under the same lock.
@@ -886,6 +1257,8 @@ pub fn reset_all_data(app: &AppHandle) -> Result<TrackingState, String> {
     detector.suppressed = None;
     detector.ignored_counts.clear();
     detector.muted.clear();
+    detector.is_paused = false;
+    clear_prompts(&mut detector);
 
     let tracking_state = build_tracking_state(&conn, &detector);
     let _ = app.emit("state-changed", &tracking_state);
@@ -920,6 +1293,18 @@ fn build_tracking_state(conn: &Connection, detector: &DetectorState) -> Tracking
         segment_started_at: detector.segment_started_at.to_rfc3339(),
         today_seconds_before_segment: detector.today_seconds_before_segment,
         pending,
+        resume_offer: detector.resume_offer.as_ref().map(|(suggestion, since)| ResumeOfferDto {
+            project: suggestion
+                .project
+                .and_then(|id| db::get_project(conn, id).ok().flatten()),
+            activity_type: suggestion
+                .activity
+                .and_then(|id| db::get_activity_type(conn, id).ok().flatten()),
+            since: since.to_rfc3339(),
+        }),
+        break_prompt: detector.break_prompt.map(|end_minute| BreakPromptDto {
+            ends_at: format_minute(end_minute),
+        }),
     }
 }
 

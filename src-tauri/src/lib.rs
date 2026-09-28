@@ -1,6 +1,7 @@
 mod commands;
 mod db;
 mod detector;
+mod focus;
 mod models;
 
 use detector::AppState;
@@ -253,6 +254,14 @@ pub fn run() {
             commands::tracking::resume_tracking,
             commands::tracking::confirm_pending_suggestion,
             commands::tracking::deny_pending_suggestion,
+            commands::tracking::continue_through_break,
+            commands::tracking::dismiss_break_prompt,
+            commands::tracking::accept_resume_offer,
+            commands::tracking::decline_resume_offer,
+            commands::settings::get_break_schedule,
+            commands::settings::set_break_schedule,
+            commands::settings::get_day_recap,
+            commands::settings::set_day_recap,
             commands::window::open_home_window,
             commands::window::quit_app,
             commands::window::poll_widget_hover,
@@ -275,6 +284,9 @@ pub fn run() {
             commands::stats::get_daily_summary,
             commands::stats::get_monthly_summary,
             commands::stats::get_day_detail,
+            commands::stats::get_focus_stats,
+            commands::history::save_time_range,
+            commands::history::delete_time_entries,
             commands::projects::create_project,
             commands::projects::update_project,
             commands::projects::archive_project,
@@ -282,6 +294,7 @@ pub fn run() {
             commands::projects::set_project_aliases,
             commands::projects::set_project_colors,
             commands::export::save_report_pdf,
+            commands::export::export_sessions,
         ])
         .setup(|app| {
             log::info!("Pulse {} starting up", app.package_info().version);
@@ -367,6 +380,14 @@ pub fn run() {
                     .unwrap_or(detector::DEFAULT_IDLE_TIMEOUT_SECS)
             };
             detector::set_idle_timeout_secs(app.handle(), idle_timeout_secs);
+            detector::set_break_schedule(
+                app.handle(),
+                commands::settings::load_break_schedule(app.handle()),
+            );
+            detector::set_day_recap_settings(
+                app.handle(),
+                commands::settings::load_day_recap(app.handle()),
+            );
 
             // The idle-lock global shortcut, registered the same way as the
             // confirm shortcut but always keyboard-only. Its parsed hotkey is
