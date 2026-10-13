@@ -2,6 +2,7 @@ pub mod breaks;
 pub mod browser_signal;
 mod matcher;
 pub mod mouse_hook;
+mod paths;
 mod win;
 
 use crate::db;
@@ -269,9 +270,13 @@ fn detect_foreground(state: &AppState) -> Option<(Suggestion, win::ForegroundInf
     let (project, activity) = if match_intent == MatchIntent::Skip {
         (None, None)
     } else {
+        // The location (a File Explorer window's folder path) is matched
+        // along with the title: the path names the client even when the
+        // title is just the last folder.
+        let with_location = paths::with_location(&info.window_title, info.location.as_deref());
         let text: &str = match &match_intent {
             MatchIntent::UseText(text) => text,
-            _ => &info.window_title,
+            _ => &with_location,
         };
         let matcher = state.matcher.lock().unwrap();
         let activity_enabled = *state.activity_detection_enabled.lock().unwrap();

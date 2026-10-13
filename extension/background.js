@@ -29,7 +29,12 @@ async function send() {
   } catch {
     return;
   }
-  if (!tab || !tab.url || !/^https?:/.test(tab.url)) {
+  // Si invia anche quando la scheda non e' una pagina web (PDF locale
+  // file://, chrome://, nuova scheda): restando zitti Pulse continuava a usare
+  // l'ultimo URL ricevuto per ~1 minuto — dopo Pinterest, un PDF aperto da
+  // disco veniva ignorato come se fosse ancora Pinterest. Per i file://
+  // Pulse usa il percorso del file per riconoscere il progetto.
+  if (!tab || !tab.url) {
     return;
   }
 

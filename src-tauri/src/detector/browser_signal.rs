@@ -92,6 +92,18 @@ pub fn resolve_match_text(
         return MatchIntent::UseWindowTitle;
     }
 
+    // A PDF's tab title is its file name or its internal metadata title
+    // ("Microsoft Word - Documento1"), which rarely names the client; the
+    // file's folder path usually does (`E:\SOFLY\...\listino.pdf`).
+    if let Some(path) = super::paths::file_url_to_path(&signal.url) {
+        return MatchIntent::UseText(super::paths::with_location(&info.window_title, Some(&path)));
+    }
+    if super::paths::is_pdf_url(&signal.url) {
+        if let Some(path) = super::paths::url_path(&signal.url) {
+            return MatchIntent::UseText(super::paths::with_location(&info.window_title, Some(&path)));
+        }
+    }
+
     let Some(host) = extract_host(&signal.url) else {
         return MatchIntent::UseWindowTitle;
     };
@@ -218,6 +230,7 @@ mod tests {
         ForegroundInfo {
             window_title: "irrelevant".to_string(),
             process_name: process_name.to_string(),
+            location: None,
         }
     }
 
@@ -301,6 +314,30 @@ mod tests {
         assert_eq!(
             resolve_match_text(&info("chrome"), Some(&sig), now),
             MatchIntent::UseWindowTitle
+        );
+    }
+
+    #[test]
+    fn local_pdf_matches_on_its_folder_path() {
+        let (sig, now) = signal(
+            "file:///E:/SOFLY/Preventivi/listino%202026.pdf",
+            None,
+            Duration::ZERO,
+        );
+        let mut foreground = info("chrome");
+        foreground.window_title = "Microsoft Word - Documento1".to_string();
+        assert_eq!(
+            resolve_match_text(&foreground, Some(&sig), now),
+            MatchIntent::UseText(r"Microsoft Word - Documento1 E:\SOFLY\Preventivi\listino 2026.pdf".to_string())
+        );
+    }
+
+    #[test]
+    fn web_pdf_matches_on_its_url_path() {
+        let (sig, now) = signal("https://cdn.example.com/clienti/OG/brief.pdf", None, Duration::ZERO);
+        assert_eq!(
+            resolve_match_text(&info("chrome"), Some(&sig), now),
+            MatchIntent::UseText("irrelevant clienti/OG/brief.pdf".to_string())
         );
     }
 

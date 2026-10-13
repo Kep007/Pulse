@@ -15,6 +15,11 @@ use windows::Win32::UI::WindowsAndMessaging::{
 pub struct ForegroundInfo {
     pub window_title: String,
     pub process_name: String,
+    /// Where the window "is", when the title alone doesn't say: the full
+    /// folder path of a File Explorer window, whose title is only the last
+    /// folder's name ("Ottobre"), so `E:\SOFLY\Reels\...\Ottobre` never
+    /// matched project SOFLY.
+    pub location: Option<String>,
 }
 
 /// Reads the title and executable name of the current foreground window.
@@ -37,10 +42,16 @@ pub fn read_foreground_info() -> Option<ForegroundInfo> {
 
         let exe_path = read_process_exe_path(pid)?;
         let process_name = process_name_from_path(&exe_path);
+        let location = if process_name.eq_ignore_ascii_case("explorer") {
+            explorer_folder(hwnd, &window_title)
+        } else {
+            None
+        };
 
         Some(ForegroundInfo {
             window_title,
             process_name,
+            location,
         })
     }
 }
@@ -52,6 +63,50 @@ unsafe fn read_window_title(hwnd: HWND) -> String {
         return String::new();
     }
     String::from_utf16_lossy(&buffer[..len as usize])
+}
+
+/// The folder open in the File Explorer window `hwnd`, through the shell's
+/// own list of open folder windows (IShellWindows). On Windows 11 every tab
+/// of a window is a separate entry sharing the window's HWND; the active
+/// tab is the one whose name the window title starts with. None for the
+/// desktop/taskbar (also explorer.exe) and for virtual locations without a
+/// file path (Questo PC, Rete).
+unsafe fn explorer_folder(hwnd: HWND, title: &str) -> Option<String> {
+    use windows::core::Interface;
+    use windows::Win32::System::Com::{CoCreateInstance, CoInitializeEx, CLSCTX_ALL, COINIT_MULTITHREADED};
+    use windows::Win32::System::Variant::VARIANT;
+    use windows::Win32::UI::Shell::{IShellWindows, IWebBrowser2, ShellWindows};
+
+    // Harmless when this thread is already initialized (S_FALSE, or
+    // RPC_E_CHANGED_MODE on an STA thread — COM still works there).
+    let _ = CoInitializeEx(None, COINIT_MULTITHREADED);
+    let shell_windows: IShellWindows = CoCreateInstance(&ShellWindows, None, CLSCTX_ALL).ok()?;
+    let count = shell_windows.Count().ok()?;
+    let mut fallback = None;
+    for index in 0..count {
+        let Ok(dispatch) = shell_windows.Item(&VARIANT::from(index)) else {
+            continue;
+        };
+        let Ok(browser) = dispatch.cast::<IWebBrowser2>() else {
+            continue;
+        };
+        if browser.HWND().map(|handle| handle.0) != Ok(hwnd.0 as isize) {
+            continue;
+        }
+        let Some(path) = browser
+            .LocationURL()
+            .ok()
+            .and_then(|url| super::paths::file_url_to_path(&url.to_string()))
+        else {
+            continue;
+        };
+        let name = browser.LocationName().map(|name| name.to_string()).unwrap_or_default();
+        if !name.is_empty() && title.starts_with(&name) {
+            return Some(path);
+        }
+        fallback.get_or_insert(path);
+    }
+    fallback
 }
 
 unsafe fn read_process_exe_path(pid: u32) -> Option<String> {
@@ -149,4 +204,24 @@ fn process_name_from_path(exe_path: &str) -> String {
         .and_then(|stem| stem.to_str())
         .unwrap_or(exe_path)
         .to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    /// Needs a File Explorer window open on a folder whose path contains
+    /// `PULSE_EXPLORER_TEST_EXPECT`; run with `-- --ignored`.
+    #[test]
+    #[ignore]
+    fn reads_the_folder_of_an_open_explorer_window() {
+        use windows::core::w;
+        use windows::Win32::UI::WindowsAndMessaging::FindWindowW;
+        let expect = std::env::var("PULSE_EXPLORER_TEST_EXPECT").unwrap();
+        unsafe {
+            let hwnd = FindWindowW(w!("CabinetWClass"), None).expect("an Explorer window");
+            let title = super::read_window_title(hwnd);
+            let path = super::explorer_folder(hwnd, &title).expect("folder path");
+            println!("title={title:?} path={path:?}");
+            assert!(path.contains(&expect), "{path} should contain {expect}");
+        }
+    }
 }
