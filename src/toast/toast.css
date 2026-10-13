@@ -255,3 +255,12 @@
     animation: none;
   }
 }
+
+.tone-danger .toast-icon {
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+
+.toast-card.tone-danger {
+  border-color: var(--danger-strong);
+}

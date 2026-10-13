@@ -268,6 +268,35 @@ pub fn spawn(app: AppHandle) {
     });
 }
 
+/// Whether a repository and token are set (sync may still be switched off).
+pub(crate) fn is_configured(app: &AppHandle) -> bool {
+    config(app).0.is_some() && read_token().is_some()
+}
+
+/// Commits one file under `studies/<this device>/` in the sync repository —
+/// how the detection study reaches Claude without the user having to
+/// remember to send it.
+pub(crate) async fn upload_study_file(app: &AppHandle, name: &str, content: String) -> Result<String, String> {
+    let (repo, _) = config(app);
+    let repo = repo.ok_or("Sincronizzazione non configurata.")?;
+    let token = read_token().ok_or("Token GitHub mancante.")?;
+    let path = format!("studies/{}/{name}", device_id(app)?);
+    let gh = GitHub::new(&repo, &token)?;
+    for attempt in 1..=3 {
+        let head = gh.head().await?;
+        match gh
+            .commit_files(&head, &[(path.clone(), Some(content.clone()))], "Studio rilevamento")
+            .await
+        {
+            Ok(()) => return Ok(format!("{repo}/{path}")),
+            Err(PushError::Conflict) if attempt < 3 => continue,
+            Err(PushError::Conflict) => return Err("Repository occupato, riprova tra poco.".to_string()),
+            Err(PushError::Other(message)) => return Err(message),
+        }
+    }
+    unreachable!()
+}
+
 #[tauri::command]
 pub fn get_sync_status(app: AppHandle) -> SyncStatusDto {
     status(&app)

@@ -19,6 +19,10 @@ const MIGRATIONS: &[(&str, &str)] = &[
     ),
     ("0005_compaction", include_str!("migrations/0005_compaction.sql")),
     ("0006_sync", include_str!("migrations/0006_sync.sql")),
+    (
+        "0007_detection_study",
+        include_str!("migrations/0007_detection_study.sql"),
+    ),
 ];
 
 /// Single folder all of Pulse's per-user data (database, settings) lives in

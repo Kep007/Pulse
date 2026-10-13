@@ -133,3 +133,19 @@ export type SyncStatus = {
   lastSync: string | null;
   lastError: string | null;
 };
+
+export type StudyStatus = {
+  active: boolean;
+  startedAt: string | null;
+  daysElapsed: number;
+  /** 31 days reached: time to export and move to "Fase 2". */
+  due: boolean;
+  uploadedAt: string | null;
+  windowsLogged: number;
+};
+
+export type StudyExport = {
+  path: string;
+  uploadedTo: string | null;
+  uploadError: string | null;
+};

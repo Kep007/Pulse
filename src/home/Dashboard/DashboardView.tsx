@@ -6,9 +6,11 @@ import {
   getDailySummary,
   getFocusStats,
   getMonthlySummary,
+  getStudyStatus,
+  exportStudy,
   listActivityTypes,
 } from "../../lib/tauri";
-import type { FocusStats } from "../../lib/types";
+import type { FocusStats, StudyStatus } from "../../lib/types";
 import { FocusCard } from "./FocusCard";
 import { ProjectComparison } from "./ProjectComparison";
 import type { ActivityTypeDto, BreakdownMetric, DayBucket, MonthBucket } from "../../lib/types";
@@ -59,6 +61,25 @@ export function DashboardView() {
   const [allTimeDailyBuckets, setAllTimeDailyBuckets] = useState<DayBucket[]>([]);
   const [allTimeMonthlyBuckets, setAllTimeMonthlyBuckets] = useState<MonthBucket[]>([]);
   const [focusStats, setFocusStats] = useState<FocusStats | null>(null);
+  const [study, setStudy] = useState<StudyStatus | null>(null);
+  const [studyNote, setStudyNote] = useState<string | null>(null);
+
+  useEffect(() => {
+    getStudyStatus().then(setStudy).catch(() => setStudy(null));
+  }, []);
+
+  async function exportStudyNow() {
+    try {
+      const result = await exportStudy();
+      setStudyNote(
+        result.uploadedTo
+          ? "Registro salvato in Documenti e caricato su GitHub: chiedi a Claude di passare alla Fase 2."
+          : "Registro salvato in Documenti: passalo a Claude per la Fase 2.",
+      );
+    } catch (err) {
+      setStudyNote(typeof err === "string" ? err : "Esportazione non riuscita.");
+    }
+  }
   const projects = useProjects();
   const [activityTypes, setActivityTypes] = useState<ActivityTypeDto[]>([]);
   const [activityEnabled, setActivityEnabled] = useState(false);
@@ -209,6 +230,18 @@ export function DashboardView() {
 
   return (
     <div className="dashboard-view">
+      {study?.due && (
+        <div className="study-banner" role="alert">
+          <span>
+            <strong>Studio del rilevamento completato.</strong>{" "}
+            {studyNote ??
+              `Sono passati ${study.daysElapsed} giorni: esporta il registro e passa alla Fase 2 per migliorare il rilevamento.`}
+          </span>
+          <button type="button" onClick={() => void exportStudyNow()}>
+            Esporta registro
+          </button>
+        </div>
+      )}
       <div className="dashboard-filter-sticky">
         <div className="dashboard-filter-bar">
           <span className="dashboard-filter-label">

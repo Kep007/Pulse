@@ -8,6 +8,8 @@ import type {
   MonthBucket,
   ProjectDto,
   SegmentDto,
+  StudyExport,
+  StudyStatus,
   SyncStatus,
   TrackingState,
 } from "./types";
@@ -251,4 +253,20 @@ export function syncNow() {
 /** False when nothing has been tracked today (no popup shown). */
 export function showDayRecapNow() {
   return invoke<boolean>("show_day_recap_now");
+}
+
+export function getStudyStatus() {
+  return invoke<StudyStatus>("get_study_status");
+}
+
+export function startStudy() {
+  return invoke<StudyStatus>("start_study");
+}
+
+export function closeStudy() {
+  return invoke<StudyStatus>("close_study");
+}
+
+export function exportStudy() {
+  return invoke<StudyExport>("export_study");
 }

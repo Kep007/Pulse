@@ -12,6 +12,7 @@ import {
   declineResumeOffer,
   denyPendingSuggestion,
   dismissBreakPrompt,
+  exportStudy,
   openHomeWindow,
   getConfirmShortcut,
   getCurrentState,
@@ -19,6 +20,7 @@ import {
 import type {
   BreakPrompt,
   DayRecap,
+  StudyStatus,
   PendingSuggestion,
   ResumeOffer,
   ToastMessage,
@@ -42,7 +44,7 @@ import "./toast.css";
 
 initTheme();
 
-type Tone = "accent" | "success" | "warn" | "neutral";
+type Tone = "accent" | "success" | "warn" | "neutral" | "danger";
 
 // Info toasts are short status lines from the backend; the icon is picked
 // from their wording so each kind of event reads at a glance.
@@ -80,7 +82,8 @@ type Display =
   | { kind: "confirm"; suggestion: PendingSuggestion }
   | { kind: "resume"; offer: ResumeOffer }
   | { kind: "break"; prompt: BreakPrompt }
-  | { kind: "recap"; recap: DayRecap };
+  | { kind: "recap"; recap: DayRecap }
+  | { kind: "study"; status: StudyStatus };
 
 const RECAP_LIFETIME_MS = 2 * 60 * 1000;
 const RECAP_MAX_PROJECTS = 4;
@@ -103,7 +106,9 @@ function promptFromState(current: Display | null, state: TrackingState): Display
       ? current
       : { kind: "break", prompt: state.breakPrompt };
   }
-  return current?.kind === "info" || current?.kind === "recap" ? current : null;
+  return current?.kind === "info" || current?.kind === "recap" || current?.kind === "study"
+    ? current
+    : null;
 }
 
 function formatClock(iso: string) {
@@ -165,6 +170,16 @@ export function ToastWindow() {
       if (isShowingRef.current) {
         setGeometryTick((tick) => tick + 1);
       }
+    }).then((fn) => {
+      if (cancelled) {
+        fn();
+        return;
+      }
+      unlisten.push(fn);
+    });
+
+    listen<StudyStatus>("study-reminder", (event) => {
+      setDisplay({ kind: "study", status: event.payload });
     }).then((fn) => {
       if (cancelled) {
         fn();
@@ -435,7 +450,11 @@ export function ToastWindow() {
   function respond(confirmed: boolean) {
     const kind = display?.kind;
     setDisplay(null);
-    if (kind === "recap") {
+    if (kind === "study") {
+      if (confirmed) {
+        void exportStudy();
+      }
+    } else if (kind === "recap") {
       if (confirmed) {
         void openHomeWindow();
       }
@@ -539,6 +558,20 @@ export function ToastWindow() {
           </>,
           ["Continuo", "Pausa"],
           shortcutHint(),
+        );
+      case "study":
+        return prompt(
+          "danger",
+          <IconChart size={16} />,
+          "Studio completato: passa alla Fase 2",
+          <>
+            Sono passati <strong>{current.status.daysElapsed} giorni</strong> di registro del
+            rilevamento.{" "}
+            {current.status.uploadedAt
+              ? "È già stato caricato su GitHub: chiedi a Claude di analizzarlo."
+              : "Esportalo e passalo a Claude per migliorare il rilevamento."}
+          </>,
+          ["Esporta", "Più tardi"],
         );
       case "recap": {
         const { recap } = current;

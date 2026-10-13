@@ -115,6 +115,9 @@ pub struct DetectorState {
     forgotten_work: ForgottenWork,
     /// "You've been working on X since 15:02 — resume from there?"
     resume_offer: Option<(Suggestion, DateTime<Utc>)>,
+    /// Detection study running (see `crate::study`) and its row tracker.
+    study_active: bool,
+    study_recorder: crate::study::Recorder,
     day_recap: DayRecapSettings,
     recap_shown_on: Option<chrono::NaiveDate>,
 }
@@ -173,6 +176,8 @@ impl DetectorState {
             resume_offer: None,
             day_recap: DayRecapSettings::default(),
             recap_shown_on: None,
+            study_active: false,
+            study_recorder: crate::study::Recorder::default(),
         }
     }
 }
@@ -203,11 +208,13 @@ impl AppState {
     pub fn new(conn: Connection, company_terms: &[String]) -> rusqlite::Result<Self> {
         let projects = db::project_match_terms(&conn)?;
         let rules = db::activity_rules(&conn)?;
+        let mut detector = DetectorState::initial(Utc::now());
+        detector.study_active = crate::study::is_active(&conn);
 
         Ok(AppState {
             db: Mutex::new(conn),
             matcher: Mutex::new(Matcher::build(&projects, &rules, company_terms)),
-            detector: Mutex::new(DetectorState::initial(Utc::now())),
+            detector: Mutex::new(detector),
             activity_detection_enabled: Mutex::new(false),
             browser_signal: Mutex::new(None),
             lock_shortcut: Mutex::new(None),
@@ -250,7 +257,14 @@ fn reassert_always_on_top(app: &AppHandle) {
 /// What the foreground window says the user is working on. None while
 /// Pulse's own windows are in front (never itself "an activity") or when the
 /// foreground can't be read.
-fn detect_foreground(state: &AppState) -> Option<(Suggestion, win::ForegroundInfo)> {
+/// What the matcher was given and which term won — kept for the detection
+/// study (see `crate::study`).
+pub(crate) struct MatchTrace {
+    pub text: String,
+    pub term: Option<String>,
+}
+
+fn detect_foreground(state: &AppState) -> Option<(Suggestion, win::ForegroundInfo, MatchTrace)> {
     let info = win::read_foreground_info()?;
     if info.process_name.eq_ignore_ascii_case("pulse") {
         return None;
@@ -267,7 +281,12 @@ fn detect_foreground(state: &AppState) -> Option<(Suggestion, win::ForegroundInf
         browser_signal::resolve_match_text(&info, signal.as_ref(), Instant::now())
     };
 
+    let mut trace = MatchTrace {
+        text: String::new(),
+        term: None,
+    };
     let (project, activity) = if match_intent == MatchIntent::Skip {
+        trace.text = format!("[ignorato] {}", info.window_title);
         (None, None)
     } else {
         // The location (a File Explorer window's folder path) is matched
@@ -280,14 +299,17 @@ fn detect_foreground(state: &AppState) -> Option<(Suggestion, win::ForegroundInf
         };
         let matcher = state.matcher.lock().unwrap();
         let activity_enabled = *state.activity_detection_enabled.lock().unwrap();
+        let project = matcher.match_project_with_term(text, &info.process_name);
+        trace.text = text.to_string();
+        trace.term = project.as_ref().map(|(_, term)| term.clone());
         (
-            matcher.match_project(text, &info.process_name),
+            project.map(|(id, _)| id),
             activity_enabled
                 .then(|| matcher.match_activity(text, &info.process_name))
                 .flatten(),
         )
     };
-    Some((Suggestion { project, activity }, info))
+    Some((Suggestion { project, activity }, info, trace))
 }
 
 /// Minutes since local midnight on `date` → that instant in UTC.
@@ -399,7 +421,10 @@ fn watch_forgotten_work(
     let user_active = idle_seconds < detector.idle_timeout_secs;
     let detected = if user_active {
         detect_foreground(state)
-            .map(|(suggestion, _)| suggestion)
+            .map(|(suggestion, info, trace)| {
+                record_study(state, detector, &info, &trace, &suggestion, true);
+                suggestion
+            })
             .filter(|suggestion| suggestion.project.is_some() || suggestion.activity.is_some())
     } else {
         None
@@ -503,6 +528,42 @@ pub fn set_day_recap_settings(app: &AppHandle, settings: DayRecapSettings) {
     detector.day_recap = settings;
 }
 
+/// One detection-study observation per tick while a study runs (extends
+/// the current row when nothing changed).
+fn record_study(
+    state: &AppState,
+    detector: &mut DetectorState,
+    info: &win::ForegroundInfo,
+    trace: &MatchTrace,
+    detected: &Suggestion,
+    paused: bool,
+) {
+    if !detector.study_active {
+        return;
+    }
+    let conn = state.db.lock().unwrap();
+    let observation = crate::study::Observation {
+        process: &info.process_name,
+        title: &info.window_title,
+        matched_text: &trace.text,
+        detected_project_id: detected.project,
+        matched_term: trace.term.as_deref(),
+        tracked_project_id: detector.stable_project,
+        paused,
+    };
+    if let Err(err) = detector.study_recorder.record(&conn, Utc::now(), &observation) {
+        log::warn!("study: failed to record observation: {err}");
+    }
+}
+
+/// Turns study recording on/off for the poller (after start/close).
+pub fn set_study_active(app: &AppHandle, active: bool) {
+    let state = app.state::<AppState>();
+    let mut detector = state.detector.lock().unwrap();
+    detector.study_active = active;
+    detector.study_recorder = crate::study::Recorder::default();
+}
+
 fn enter_pause(detector: &mut DetectorState, at: DateTime<Utc>) {
     detector.is_paused = true;
     detector.is_idle = false;
@@ -591,9 +652,10 @@ fn tick(app: &AppHandle) {
         return;
     }
 
-    let Some((detected, info)) = detect_foreground(&state) else {
+    let Some((detected, info, trace)) = detect_foreground(&state) else {
         return;
     };
+    record_study(&state, &mut detector, &info, &trace, &detected, false);
 
     if detector.suppressed.as_ref() != Some(&detected) {
         detector.suppressed = None;
@@ -807,6 +869,7 @@ pub fn set_active_project(app: &AppHandle, project_id: Option<i64>) -> TrackingS
     clear_prompts(&mut detector);
     detector.unmute_matching(project_id, None);
     let conn = state.db.lock().unwrap();
+    crate::study::record_event_if_active(&conn, "manual_project", project_id);
     let activity_type_id = detector.stable_activity;
     let label = project_id
         .and_then(|id| db::get_project(&conn, id).ok().flatten())
@@ -835,6 +898,7 @@ pub fn set_active_activity(app: &AppHandle, activity_type_id: Option<i64>) -> Tr
     clear_prompts(&mut detector);
     detector.unmute_matching(None, activity_type_id);
     let conn = state.db.lock().unwrap();
+    crate::study::record_event_if_active(&conn, "manual_activity", activity_type_id);
     let project_id = detector.stable_project;
     let label = activity_type_id
         .and_then(|id| db::get_activity_type(&conn, id).ok().flatten())
@@ -939,6 +1003,7 @@ pub fn accept_resume_offer(app: &AppHandle) -> TrackingState {
     detector.pending = None;
     clear_prompts(&mut detector);
     let conn = state.db.lock().unwrap();
+    crate::study::record_event_if_active(&conn, "resume_accept", suggestion.project);
     let label = detection_label(&conn, suggestion.project, suggestion.activity);
     let result = commit(
         app,
@@ -971,6 +1036,7 @@ pub fn decline_resume_offer(app: &AppHandle) -> TrackingState {
             .decline((suggestion.project, suggestion.activity));
     }
     let conn = state.db.lock().unwrap();
+    crate::study::record_event_if_active(&conn, "resume_decline", None);
     let result = build_tracking_state(&conn, &detector);
     let _ = app.emit("state-changed", &result);
     result
@@ -1155,6 +1221,7 @@ pub fn confirm_pending_suggestion(app: &AppHandle) -> TrackingState {
     detector.suppressed = None;
     detector.is_paused = false;
     let conn = state.db.lock().unwrap();
+    crate::study::record_event_if_active(&conn, "confirm", suggestion.project);
     commit(
         app,
         &mut detector,
@@ -1182,6 +1249,7 @@ pub fn deny_pending_suggestion(app: &AppHandle) -> TrackingState {
     detector.is_paused = false;
 
     let conn = state.db.lock().unwrap();
+    crate::study::record_event_if_active(&conn, "deny", detector.suppressed.as_ref().and_then(|s| s.project));
     let tracking_state = build_tracking_state(&conn, &detector);
     let _ = app.emit("state-changed", &tracking_state);
     tracking_state

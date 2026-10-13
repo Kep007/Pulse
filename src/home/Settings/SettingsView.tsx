@@ -9,6 +9,7 @@ import { IdleTimeoutSetting } from "./IdleTimeoutSetting";
 import { LockShortcutSetting } from "./LockShortcutSetting";
 import { QuitButton } from "./QuitButton";
 import { ResetDataButton } from "./ResetDataButton";
+import { StudySetting } from "./StudySetting";
 import { SyncSetting } from "./SyncSetting";
 import { ThemeSetting } from "./ThemeSetting";
 import { WidgetPositionSetting } from "./WidgetPositionSetting";
@@ -36,6 +37,7 @@ export function SettingsView() {
         <ActivityDetectionToggle />
         <BrowserTrackingSetting />
         <IdleTimeoutSetting />
+        <StudySetting />
       </Section>
       <Section title="Pause e promemoria">
         <BreakScheduleSetting />

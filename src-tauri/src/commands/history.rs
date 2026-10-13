@@ -31,6 +31,7 @@ pub fn save_time_range(
         let conn = state.db.lock().unwrap();
         db::write_time_range(&conn, &replace_ids, project_id, None, start, end, Utc::now())
             .map_err(|err| err.to_string())?;
+        crate::study::record_event_if_active(&conn, "timeline_edit", project_id);
     }
     after_history_edit(&app);
     Ok(())
@@ -42,6 +43,7 @@ pub fn delete_time_entries(app: AppHandle, ids: Vec<i64>) -> Result<(), String> 
         let state = app.state::<AppState>();
         let conn = state.db.lock().unwrap();
         db::delete_time_entries(&conn, &ids).map_err(|err| err.to_string())?;
+        crate::study::record_event_if_active(&conn, "timeline_delete", None);
     }
     after_history_edit(&app);
     Ok(())

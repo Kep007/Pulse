@@ -3,6 +3,7 @@ mod db;
 mod detector;
 mod focus;
 mod models;
+mod study;
 mod sync;
 
 use detector::AppState;
@@ -34,6 +35,9 @@ fn spawn_history_compaction(app: tauri::AppHandle) {
                 }
                 Ok(_) => {}
                 Err(err) => log::error!("history compaction failed: {err}"),
+            }
+            if let Err(err) = study::prune(&conn, chrono::Utc::now()) {
+                log::warn!("study prune failed: {err}");
             }
         }
     });
@@ -293,6 +297,10 @@ pub fn run() {
             sync::set_sync_config,
             sync::forget_sync_token,
             sync::sync_now,
+            study::get_study_status,
+            study::start_study,
+            study::close_study,
+            study::export_study,
             commands::projects::create_project,
             commands::projects::update_project,
             commands::projects::archive_project,
@@ -333,6 +341,8 @@ pub fn run() {
             detector::spawn_polling(app.handle().clone());
             detector::browser_signal::spawn_server(app.handle().clone());
             spawn_history_compaction(app.handle().clone());
+            study::ensure_started(app.handle());
+            study::spawn_reminder(app.handle().clone());
             app.manage(sync::SyncRuntime::default());
             sync::spawn(app.handle().clone());
 

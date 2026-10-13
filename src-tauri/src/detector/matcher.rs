@@ -49,6 +49,9 @@ fn compile_word_boundary_regex(normalized_term: &str) -> Option<Regex> {
 
 struct ProjectTerm {
     project_id: i64,
+    /// Normalized term text — reported alongside a match for the detection
+    /// study, to see which words cause wrong matches.
+    term: String,
     term_len: usize,
     /// True when this term (normalized) is also one of the configured
     /// company terms (the company's own name/aliases, set in the Progetti
@@ -102,6 +105,7 @@ impl Matcher {
                 if let Some(pattern) = compile_word_boundary_regex(&normalized) {
                     project_terms.push(ProjectTerm {
                         project_id: *project_id,
+                        term: normalized.clone(),
                         term_len: normalized.len(),
                         is_company: company.contains(&normalized),
                         pattern,
@@ -143,7 +147,14 @@ impl Matcher {
     /// that text the user is working on the other project, not "for the
     /// company". Only when the company is the *only* thing the text matches
     /// (e.g. the internal team chat) does the company's own project win.
+    #[cfg(test)]
     pub fn match_project(&self, window_title: &str, process_name: &str) -> Option<i64> {
+        self.match_project_with_term(window_title, process_name)
+            .map(|(project_id, _)| project_id)
+    }
+
+    /// Same as `match_project`, plus the (normalized) term that won.
+    pub fn match_project_with_term(&self, window_title: &str, process_name: &str) -> Option<(i64, String)> {
         let title = normalize_text(window_title);
         let process = normalize_text(process_name);
 
@@ -162,7 +173,7 @@ impl Matcher {
                 .iter()
                 .filter(|term| term.is_company == company)
                 .max_by_key(|term| term.term_len)
-                .map(|term| term.project_id)
+                .map(|term| (term.project_id, term.term.clone()))
         };
         best_of(false).or_else(|| best_of(true))
     }
