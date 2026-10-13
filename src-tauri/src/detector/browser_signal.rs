@@ -121,6 +121,15 @@ pub fn resolve_match_text(
         };
     }
 
+    // The site's own domain often names the client when the page title
+    // doesn't ("Bacheca ‹ Sito — WordPress" on sofly.it/wp-admin). The host
+    // is folded into the matched text; the matcher's word boundaries keep
+    // "blog.example.com" from matching a project called "OG".
+    if signal.url.starts_with("http://") || signal.url.starts_with("https://") {
+        let host = host.strip_prefix("www.").unwrap_or(host);
+        return MatchIntent::UseText(super::paths::with_location(&info.window_title, Some(host)));
+    }
+
     MatchIntent::UseWindowTitle
 }
 
@@ -309,8 +318,17 @@ mod tests {
     }
 
     #[test]
-    fn unrelated_site_uses_window_title() {
-        let (sig, now) = signal("https://example.com/", None, Duration::ZERO);
+    fn websites_add_their_domain_to_the_matched_text() {
+        let (sig, now) = signal("https://www.sofly.it/wp-admin/", None, Duration::ZERO);
+        assert_eq!(
+            resolve_match_text(&info("chrome"), Some(&sig), now),
+            MatchIntent::UseText("irrelevant sofly.it".to_string())
+        );
+    }
+
+    #[test]
+    fn non_web_tabs_use_the_window_title() {
+        let (sig, now) = signal("chrome://newtab/", None, Duration::ZERO);
         assert_eq!(
             resolve_match_text(&info("chrome"), Some(&sig), now),
             MatchIntent::UseWindowTitle
