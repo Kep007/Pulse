@@ -4,7 +4,6 @@ import type {
   BreakSchedule,
   DayBucket,
   DayRecapSettings,
-  FocusStats,
   MonthBucket,
   ProjectDto,
   SegmentDto,
@@ -218,10 +217,6 @@ export function setDayRecap(settings: DayRecapSettings) {
   return invoke<DayRecapSettings>("set_day_recap", { settings });
 }
 
-export function getFocusStats(days: number) {
-  return invoke<FocusStats>("get_focus_stats", { days });
-}
-
 /** Resolves false when the period had nothing to export (no file written). */
 export function exportSessions(
   path: string,
@@ -269,4 +264,8 @@ export function closeStudy() {
 
 export function exportStudy() {
   return invoke<StudyExport>("export_study");
+}
+
+export function setProjectInPicker(id: number, inPicker: boolean) {
+  return invoke<void>("set_project_in_picker", { id, inPicker });
 }

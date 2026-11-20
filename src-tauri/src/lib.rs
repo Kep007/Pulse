@@ -1,7 +1,6 @@
 mod commands;
 mod db;
 mod detector;
-mod focus;
 mod models;
 mod study;
 mod sync;
@@ -290,7 +289,6 @@ pub fn run() {
             commands::stats::get_daily_summary,
             commands::stats::get_monthly_summary,
             commands::stats::get_day_detail,
-            commands::stats::get_focus_stats,
             commands::history::save_time_range,
             commands::history::delete_time_entries,
             sync::get_sync_status,
@@ -305,6 +303,7 @@ pub fn run() {
             commands::projects::update_project,
             commands::projects::archive_project,
             commands::projects::reorder_projects,
+            commands::projects::set_project_in_picker,
             commands::projects::set_project_aliases,
             commands::projects::set_project_colors,
             commands::export::save_report_pdf,

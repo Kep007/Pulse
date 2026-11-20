@@ -1,5 +1,6 @@
 pub mod breaks;
 pub mod browser_signal;
+mod documents;
 mod matcher;
 pub mod mouse_hook;
 mod paths;
@@ -32,6 +33,11 @@ const POLL_INTERVAL: Duration = Duration::from_secs(2);
 /// glances that outlast even this are caught by the second line of defense,
 /// micro-segment absorption in `db::transition_segment`.
 const DEBOUNCE_HITS: u8 = 3;
+/// Polls a detection must hold before it *prompts* to replace a project the
+/// user picked by hand (~40s). The detection study found 124 "No" answers
+/// against 39 "Sì": most prompts came from a quick look at another client's
+/// chat or file while still working on the chosen one.
+const PROMPT_DEBOUNCE_HITS: u8 = 20;
 /// Default seconds of no keyboard/mouse input before crediting time to
 /// whatever project/activity is current stops — see the idle handling at the
 /// top of `tick`. Deliberately keyboard-inclusive (not mouse-only): typing
@@ -262,6 +268,10 @@ fn reassert_always_on_top(app: &AppHandle) {
 pub(crate) struct MatchTrace {
     pub text: String,
     pub term: Option<String>,
+    /// The match is too weak to interrupt a hand-picked project with a
+    /// prompt: only the company's own name matched, or the page is one the
+    /// user just consults (see `matcher::is_reference_title`).
+    pub quiet: bool,
 }
 
 fn detect_foreground(state: &AppState) -> Option<(Suggestion, win::ForegroundInfo, MatchTrace)> {
@@ -284,6 +294,7 @@ fn detect_foreground(state: &AppState) -> Option<(Suggestion, win::ForegroundInf
     let mut trace = MatchTrace {
         text: String::new(),
         term: None,
+        quiet: false,
     };
     let (project, activity) = if match_intent == MatchIntent::Skip {
         trace.text = format!("[ignorato] {}", info.window_title);
@@ -301,9 +312,11 @@ fn detect_foreground(state: &AppState) -> Option<(Suggestion, win::ForegroundInf
         let activity_enabled = *state.activity_detection_enabled.lock().unwrap();
         let project = matcher.match_project_with_term(text, &info.process_name);
         trace.text = text.to_string();
-        trace.term = project.as_ref().map(|(_, term)| term.clone());
+        trace.term = project.as_ref().map(|(_, term, _)| term.clone());
+        trace.quiet = project.as_ref().is_some_and(|(_, _, company)| *company)
+            || matcher::is_reference_title(text);
         (
-            project.map(|(id, _)| id),
+            project.map(|(id, _, _)| id),
             activity_enabled
                 .then(|| matcher.match_activity(text, &info.process_name))
                 .flatten(),
@@ -703,10 +716,17 @@ fn tick(app: &AppHandle) {
         info.window_title, info.process_name, detected.project, detected.activity
     );
 
+    // Replacing a guess is cheap; interrupting a hand-picked project with a
+    // prompt needs the user to really stay there.
+    let needed = if detector.source == Source::Manual {
+        PROMPT_DEBOUNCE_HITS
+    } else {
+        DEBOUNCE_HITS
+    };
     let should_commit = match detector.candidate.as_mut() {
         Some(candidate) if candidate.suggestion == detected => {
-            candidate.hits += 1;
-            candidate.hits >= DEBOUNCE_HITS
+            candidate.hits = candidate.hits.saturating_add(1);
+            candidate.hits >= needed
         }
         _ => {
             detector.candidate = Some(Candidate {
@@ -760,7 +780,7 @@ fn tick(app: &AppHandle) {
         return;
     }
 
-    if detector.muted.contains(&detected) {
+    if detector.muted.contains(&detected) || trace.quiet {
         return;
     }
 

@@ -62,6 +62,12 @@ export type EntityStats = {
   totalSeconds: number;
   activeDays: number;
   avgSecondsPerActiveDay: number;
+  /** Average of each month's own total, over the months with any time —
+   *  a month with 5 working days and 10h counts as 10h. The running month
+   *  only counts when it's the only one (it would drag the average down). */
+  avgSecondsPerMonth: number;
+  activeMonths: number;
+  thisMonthSeconds: number;
   bestMonth: { month: string; seconds: number } | null;
   bestWeekday: { weekday: number; seconds: number } | null;
 };
@@ -89,12 +95,27 @@ export function computeEntityStats(
   }
 
   let bestMonth: EntityStats["bestMonth"] = null;
+  const now = new Date();
+  const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+  const pastMonths: number[] = [];
+  let thisMonthSeconds = 0;
   for (const bucket of monthlyBuckets) {
     const entry = entryFor(bucket, metric, filterId);
-    if (entry && entry.seconds > 0 && (bestMonth === null || entry.seconds > bestMonth.seconds)) {
+    if (!entry || entry.seconds <= 0) {
+      continue;
+    }
+    if (bestMonth === null || entry.seconds > bestMonth.seconds) {
       bestMonth = { month: bucket.month, seconds: entry.seconds };
     }
+    if (bucket.month === currentMonth) {
+      thisMonthSeconds = entry.seconds;
+    } else if (bucket.month < currentMonth) {
+      pastMonths.push(entry.seconds);
+    }
   }
+  const averaged = pastMonths.length > 0 ? pastMonths : thisMonthSeconds > 0 ? [thisMonthSeconds] : [];
+  const avgSecondsPerMonth =
+    averaged.length > 0 ? averaged.reduce((sum, seconds) => sum + seconds, 0) / averaged.length : 0;
 
   let bestWeekday: EntityStats["bestWeekday"] = null;
   weekdayTotals.forEach((seconds, weekday) => {
@@ -107,6 +128,9 @@ export function computeEntityStats(
     totalSeconds,
     activeDays,
     avgSecondsPerActiveDay: activeDays > 0 ? totalSeconds / activeDays : 0,
+    avgSecondsPerMonth,
+    activeMonths: averaged.length,
+    thisMonthSeconds,
     bestMonth,
     bestWeekday,
   };

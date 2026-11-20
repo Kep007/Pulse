@@ -82,6 +82,21 @@ pub fn set_project_colors(
 }
 
 #[tauri::command]
+pub fn set_project_in_picker(
+    app: AppHandle,
+    state: State<AppState>,
+    id: i64,
+    in_picker: bool,
+) -> Result<(), String> {
+    {
+        let conn = state.db.lock().unwrap();
+        db::set_project_in_picker(&conn, id, in_picker).map_err(|err| err.to_string())?;
+    }
+    let _ = app.emit(CATALOG_CHANGED_EVENT, ());
+    Ok(())
+}
+
+#[tauri::command]
 pub fn reorder_projects(
     app: AppHandle,
     state: State<AppState>,

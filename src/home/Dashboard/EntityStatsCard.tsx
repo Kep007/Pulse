@@ -48,26 +48,33 @@ export function EntityStatsCard({
   return (
     <div className="stat-tile-row">
       <div className="stat-tile">
-        <span className="stat-tile-label">Media giornaliera</span>
-        <span className="stat-tile-value">{formatHoursMinutes(stats.avgSecondsPerActiveDay)}</span>
-      </div>
-
-      <div className="stat-tile">
-        <span className="stat-tile-label">Tempo totale</span>
+        <span className="stat-tile-label">Media mensile</span>
         <TooltipTrigger
           className="stat-tile-value stat-tile-value-hoverable"
-          ariaLabel={`Tempo totale ${formatHoursMinutes(stats.totalSeconds)}: vedi lo storico mensile`}
+          ariaLabel={`Media mensile ${formatHoursMinutes(stats.avgSecondsPerMonth)}: vedi le ore di ogni mese`}
           renderTooltip={() => (
             <BreakdownTooltip
-              title="Storico mensile"
+              title={`Media su ${stats.activeMonths} ${stats.activeMonths === 1 ? "mese" : "mesi"}`}
               totalSeconds={stats.totalSeconds}
               entries={monthlyHistory}
             />
           )}
         >
-          {formatHoursMinutes(stats.totalSeconds)}
+          {formatHoursMinutes(stats.avgSecondsPerMonth)}
         </TooltipTrigger>
       </div>
+
+      {filterId === null ? (
+        <div className="stat-tile">
+          <span className="stat-tile-label">Questo mese</span>
+          <span className="stat-tile-value">{formatHoursMinutes(stats.thisMonthSeconds)}</span>
+        </div>
+      ) : (
+        <div className="stat-tile">
+          <span className="stat-tile-label">Tempo totale</span>
+          <span className="stat-tile-value">{formatHoursMinutes(stats.totalSeconds)}</span>
+        </div>
+      )}
 
       <div className="stat-tile">
         <span className="stat-tile-label">Mese più impegnativo</span>
@@ -91,7 +98,7 @@ export function EntityStatsCard({
       </div>
 
       <div className="stat-tile">
-        <span className="stat-tile-label">Giorno più impegnativo</span>
+        <span className="stat-tile-label">{filterId === null ? "Giorno più carico" : "Giorno più impegnativo"}</span>
         {bestWeekday ? (
           <TooltipTrigger
             className="stat-tile-value stat-tile-value-hoverable"

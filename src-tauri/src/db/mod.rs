@@ -23,6 +23,10 @@ const MIGRATIONS: &[(&str, &str)] = &[
         "0007_detection_study",
         include_str!("migrations/0007_detection_study.sql"),
     ),
+    (
+        "0008_project_in_picker",
+        include_str!("migrations/0008_project_in_picker.sql"),
+    ),
 ];
 
 /// Single folder all of Pulse's per-user data (database, settings) lives in
@@ -135,18 +139,18 @@ fn project_aliases_for(conn: &Connection, project_id: i64) -> rusqlite::Result<V
 
 pub fn list_projects(conn: &Connection) -> rusqlite::Result<Vec<ProjectDto>> {
     let mut stmt = conn.prepare(
-        "SELECT id, slug, name, color FROM projects WHERE archived_at IS NULL ORDER BY sort_order",
+        "SELECT id, slug, name, color, in_picker FROM projects WHERE archived_at IS NULL ORDER BY sort_order",
     )?;
-    let base: Vec<(i64, String, String, Option<String>)> = stmt
+    let base: Vec<(i64, String, String, Option<String>, bool)> = stmt
         .query_map([], |row| {
-            Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?))
+            Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?))
         })?
         .collect::<rusqlite::Result<_>>()?;
 
     let mut result = Vec::with_capacity(base.len());
-    for (id, slug, name, color) in base {
+    for (id, slug, name, color, in_picker) in base {
         let aliases = project_aliases_for(conn, id)?;
-        result.push(ProjectDto { id, slug, name, color, aliases });
+        result.push(ProjectDto { id, slug, name, color, aliases, in_picker });
     }
     Ok(result)
 }
@@ -173,7 +177,7 @@ pub fn list_activity_types(conn: &Connection) -> rusqlite::Result<Vec<ActivityTy
 /// for the Progetti tab (which goes through list_projects instead).
 pub fn get_project(conn: &Connection, id: i64) -> rusqlite::Result<Option<ProjectDto>> {
     conn.query_row(
-        "SELECT id, slug, name, color FROM projects WHERE id = ?1",
+        "SELECT id, slug, name, color, in_picker FROM projects WHERE id = ?1",
         [id],
         |row| {
             Ok(ProjectDto {
@@ -182,6 +186,7 @@ pub fn get_project(conn: &Connection, id: i64) -> rusqlite::Result<Option<Projec
                 name: row.get(2)?,
                 color: row.get(3)?,
                 aliases: Vec::new(),
+                in_picker: row.get(4)?,
             })
         },
     )
@@ -247,6 +252,7 @@ pub fn create_project(
         name: name.to_string(),
         color: color.map(str::to_string),
         aliases: Vec::new(),
+        in_picker: true,
     })
 }
 
@@ -326,6 +332,14 @@ pub fn set_project_colors(conn: &Connection, colors: &[(i64, String)]) -> rusqli
         )?;
     }
     tx.commit()
+}
+
+pub fn set_project_in_picker(conn: &Connection, id: i64, in_picker: bool) -> rusqlite::Result<()> {
+    conn.execute(
+        "UPDATE projects SET in_picker = ?1 WHERE id = ?2",
+        rusqlite::params![in_picker, id],
+    )?;
+    Ok(())
 }
 
 pub fn reorder_projects(conn: &Connection, ordered_ids: &[i64]) -> rusqlite::Result<()> {

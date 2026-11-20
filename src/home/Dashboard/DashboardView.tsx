@@ -4,33 +4,25 @@ import { IconChevron } from "../../components/icons";
 import {
   getActivityDetectionEnabled,
   getDailySummary,
-  getFocusStats,
   getMonthlySummary,
   getStudyStatus,
   exportStudy,
   listActivityTypes,
 } from "../../lib/tauri";
-import type { FocusStats, StudyStatus } from "../../lib/types";
-import { FocusCard } from "./FocusCard";
-import { ProjectComparison } from "./ProjectComparison";
+import type { StudyStatus } from "../../lib/types";
+import { ProjectWeight } from "./ProjectWeight";
 import type { ActivityTypeDto, BreakdownMetric, DayBucket, MonthBucket } from "../../lib/types";
 import { useProjects } from "../../lib/useProjects";
 import { projectColorMap } from "../../lib/projectColors";
-import { assignCategoricalColors } from "./categoricalPalette";
 import { DailyTimeline, formatDayLabel, isToday } from "./DailyTimeline";
 import { DashboardCardControls } from "./DashboardCardControls";
 import { DashboardCardTitle } from "./DashboardCardTitle";
 import { EntityStatsCard } from "./EntityStatsCard";
 import { Heatmap, MONTHS_BACK } from "./Heatmap";
 import { MonthlySummary } from "./MonthlySummary";
-import { computeEntityStats, sumAllTimeTotals } from "./timeAnalysis";
-import { TimeBreakdownBar } from "./TimeBreakdownBar";
-import { TopEntriesRanking } from "./TopEntriesRanking";
+import { computeEntityStats } from "./timeAnalysis";
 
 const MONTHLY_MONTHS = 12;
-// Focus quality is about how you work *lately* — a year-old habit says
-// little about today.
-const FOCUS_DAYS = 90;
 // Far enough back to cover any realistic history without a real "first ever
 // entry" lookup — the daily/monthly summary commands only return buckets
 // that actually have data, so this is just a safe lower bound, not a cost.
@@ -60,7 +52,6 @@ export function loadSavedFilter(): { metric: BreakdownMetric; filterId: number |
 export function DashboardView() {
   const [allTimeDailyBuckets, setAllTimeDailyBuckets] = useState<DayBucket[]>([]);
   const [allTimeMonthlyBuckets, setAllTimeMonthlyBuckets] = useState<MonthBucket[]>([]);
-  const [focusStats, setFocusStats] = useState<FocusStats | null>(null);
   const [study, setStudy] = useState<StudyStatus | null>(null);
   const [studyNote, setStudyNote] = useState<string | null>(null);
 
@@ -73,8 +64,8 @@ export function DashboardView() {
       const result = await exportStudy();
       setStudyNote(
         result.uploadedTo
-          ? "Registro salvato in Documenti e caricato su GitHub: chiedi a Claude di passare alla Fase 2."
-          : "Registro salvato in Documenti: passalo a Claude per la Fase 2.",
+          ? "Registro salvato in Documenti e caricato su GitHub: chiedi a Claude di analizzarlo."
+          : "Registro salvato in Documenti: passalo a Claude per analizzarlo.",
       );
     } catch (err) {
       setStudyNote(typeof err === "string" ? err : "Esportazione non riuscita.");
@@ -138,7 +129,6 @@ export function DashboardView() {
       getMonthlySummary(ALL_TIME_FROM, toIso).then(
         (value) => !cancelled && setAllTimeMonthlyBuckets(value),
       );
-      getFocusStats(FOCUS_DAYS).then((value) => !cancelled && setFocusStats(value));
     }
 
     loadAll();
@@ -189,44 +179,15 @@ export function DashboardView() {
   // sorted-by-value list — otherwise the same project's slice would repaint
   // every time another project overtakes it. Projects use their stored color
   // (set/randomized in the Progetti tab) so every chart matches the swatch
-  // shown there; activities keep the fixed categorical palette.
+  // shown there.
   const projectColors = useMemo(() => projectColorMap(projects), [projects]);
-  const activityColors = useMemo(
-    () => assignCategoricalColors(activityTypes.map((activityType) => activityType.id)),
-    [activityTypes],
-  );
 
-  const allEntries = useMemo(
-    () => sumAllTimeTotals(allTimeDailyBuckets, metric),
-    [allTimeDailyBuckets, metric],
-  );
-  const colorById = metric === "project" ? projectColors : activityColors;
-  // A breakdown of a single entity alone would always read 100% — with a
-  // filter set it becomes "this one vs. everything else" instead.
-  const breakdownEntries = useMemo(() => {
-    if (filterId === null) {
-      return allEntries;
-    }
-    const selected = allEntries.find((entry) => entry.id === filterId);
-    if (!selected) {
-      return [];
-    }
-    const restSeconds = allEntries.reduce(
-      (sum, entry) => (entry.id === filterId ? sum : sum + entry.seconds),
-      0,
-    );
-    return restSeconds > 0
-      ? [selected, { id: -2, name: "Tutto il resto", color: null, seconds: restSeconds }]
-      : [selected];
-  }, [allEntries, filterId]);
   const entityStats = useMemo(
     () => computeEntityStats(allTimeDailyBuckets, allTimeMonthlyBuckets, metric, filterId),
     [allTimeDailyBuckets, allTimeMonthlyBuckets, metric, filterId],
   );
   const noDataLabel =
     metric === "project" ? "Nessun dato per questo progetto." : "Nessun dato per questa attività.";
-  const nothingTrackedLabel =
-    metric === "project" ? "Nessun progetto tracciato ancora." : "Nessuna attività tracciata ancora.";
 
   return (
     <div className="dashboard-view">
@@ -235,7 +196,7 @@ export function DashboardView() {
           <span>
             <strong>Studio del rilevamento completato.</strong>{" "}
             {studyNote ??
-              `Sono passati ${study.daysElapsed} giorni: esporta il registro e passa alla Fase 2 per migliorare il rilevamento.`}
+              `Sono passati ${study.daysElapsed} giorni: esporta il registro e chiedi a Claude di analizzarlo.`}
           </span>
           <button type="button" onClick={() => void exportStudyNow()}>
             Esporta registro
@@ -264,7 +225,7 @@ export function DashboardView() {
         <div className="dashboard-card-header">
           <DashboardCardTitle
             title="Riepilogo"
-            info="Statistiche calcolate su tutto lo storico registrato per il progetto o l'attività selezionata in alto, non solo sul periodo mostrato negli altri grafici: media di tempo nei soli giorni in cui hai lavorato su questa voce, tempo totale, il mese e il giorno della settimana in cui vi hai dedicato più tempo in assoluto. Passa il mouse su tempo totale, mese e giorno più impegnativo per vederne il dettaglio."
+            info="Media mensile: per ogni mese le ore effettive di quel mese, poi la media tra i mesi in cui hai lavorato (il mese in corso non conta finché non è finito). Mese e giorno più impegnativo: dove hai messo più ore in assoluto. Passa il mouse su un valore per vedere il dettaglio."
           />
         </div>
         <EntityStatsCard
@@ -276,36 +237,6 @@ export function DashboardView() {
           emptyLabel={noDataLabel}
         />
       </section>
-
-      {metric === "project" && (
-        <section className="dashboard-card">
-          <div className="dashboard-card-header">
-            <DashboardCardTitle
-              title="Concentrazione"
-              info={`Come lavori, sugli ultimi ${FOCUS_DAYS} giorni. Una sessione è tempo continuo sullo stesso progetto (una pausa di oltre 5 minuti o un cambio di progetto la chiude). Indice di concentrazione: quota di tempo passata in sessioni di almeno 25 minuti. Sessioni interrotte: quelle sotto i 10 minuti. Cambi di progetto: quante volte all'ora salti da un progetto a un altro senza una vera pausa in mezzo.`}
-            />
-          </div>
-          <FocusCard stats={focusStats} projectId={filterId} />
-        </section>
-      )}
-
-      {metric === "project" && (
-        <section className="dashboard-card">
-          <div className="dashboard-card-header">
-            <DashboardCardTitle
-              title="Confronto progetti"
-              info="Quanto pesa ogni progetto sul tuo mese: la media delle ore nei mesi in cui ci hai lavorato, con tra parentesi il mese più leggero e il più pesante — un'indicazione, non una cifra fissa, perché dipende dalle richieste del cliente. Ultimi 3 mesi mostra la tendenza recente (↑ in crescita, ↓ in calo rispetto alla media). Il mese in corso non è conteggiato finché non è finito."
-            />
-          </div>
-          <ProjectComparison
-            projects={projects}
-            monthlyBuckets={allTimeMonthlyBuckets}
-            focus={focusStats}
-            colorById={projectColors}
-            highlightId={filterId}
-          />
-        </section>
-      )}
 
       <section className="dashboard-card">
         <div className="dashboard-card-header">
@@ -341,34 +272,30 @@ export function DashboardView() {
         />
       </section>
 
-      <section className="dashboard-card">
-        <div className="dashboard-card-header">
-          <DashboardCardTitle
-            title="Ripartizione del tempo"
-            info="Percentuale di tempo dedicato a ciascun progetto (o attività) rispetto al totale, calcolata su tutto lo storico registrato. Con un filtro attivo mostra quanto pesa la voce selezionata rispetto a tutto il resto. Oltre le prime 8 voci, il resto viene raggruppato in «Altro»."
+      {metric === "project" && filterId === null && (
+        <section className="dashboard-card">
+          <div className="dashboard-card-header">
+            <DashboardCardTitle
+              title="Peso dei progetti"
+              info="Per i progetti degli ultimi 90 giorni: quante ore ci dedichi in media nei giorni in cui ci lavori (in alto quelli che ti occupano di più la giornata) e quante ore al mese in media."
+            />
+          </div>
+          <ProjectWeight
+            dailyBuckets={allTimeDailyBuckets}
+            monthlyBuckets={allTimeMonthlyBuckets}
+            colorById={projectColors}
           />
-        </div>
-        <TimeBreakdownBar
-          entries={breakdownEntries}
-          colorById={colorById}
-          emptyLabel={filterId === null ? nothingTrackedLabel : noDataLabel}
-        />
-      </section>
+        </section>
+      )}
 
       <section className="dashboard-card">
         <div className="dashboard-card-header">
           <DashboardCardTitle
-            title="Classifica"
-            info="Progetti (o attività) ordinati per tempo totale dedicato, calcolato su tutto lo storico registrato — non solo sul periodo recente. Con un filtro attivo la voce selezionata viene evidenziata, anche se fuori dalle prime posizioni."
+            title="Storico mensile"
+            info="Ore tracciate in ciascuno degli ultimi 12 mesi, secondo il filtro selezionato in alto."
           />
         </div>
-        <TopEntriesRanking
-          entries={allEntries}
-          monthlyBuckets={allTimeMonthlyBuckets}
-          metric={metric}
-          highlightId={filterId}
-          emptyLabel={nothingTrackedLabel}
-        />
+        <MonthlySummary buckets={monthlyBuckets} metric={metric} filterId={filterId} />
       </section>
 
       <section className="dashboard-card">
@@ -379,16 +306,6 @@ export function DashboardView() {
           />
         </div>
         <Heatmap buckets={dailyBuckets} metric={metric} filterId={filterId} />
-      </section>
-
-      <section className="dashboard-card">
-        <div className="dashboard-card-header">
-          <DashboardCardTitle
-            title="Storico mensile"
-            info="Tempo totale tracciato in ciascuno degli ultimi 12 mesi, secondo il filtro selezionato in alto. Il colore di ogni barra indica quanto quel mese si avvicina al mese con più tempo registrato nel periodo mostrato."
-          />
-        </div>
-        <MonthlySummary buckets={monthlyBuckets} metric={metric} filterId={filterId} />
       </section>
     </div>
   );

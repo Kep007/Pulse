@@ -4,6 +4,8 @@ export type ProjectDto = {
   name: string;
   color: string | null;
   aliases: string[];
+  /** Listed in the widget's quick picker without searching. */
+  inPicker: boolean;
 };
 
 export type ActivityTypeDto = {
@@ -101,27 +103,6 @@ export type DayRecapSettings = {
   enabled: boolean;
   /** "HH:MM", local time. */
   time: string;
-};
-
-export type FocusTotals = {
-  trackedSeconds: number;
-  deepWorkSeconds: number;
-  sessions: number;
-  shortSessions: number;
-  switches: number;
-};
-
-export type ProjectFocus = {
-  id: number;
-  name: string;
-  color: string | null;
-  totals: FocusTotals;
-};
-
-export type FocusStats = {
-  days: number;
-  overall: FocusTotals;
-  projects: ProjectFocus[];
 };
 
 export type SyncStatus = {

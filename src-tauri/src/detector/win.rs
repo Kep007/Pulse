@@ -45,7 +45,7 @@ pub fn read_foreground_info() -> Option<ForegroundInfo> {
         let location = if process_name.eq_ignore_ascii_case("explorer") {
             explorer_folder(hwnd, &window_title)
         } else {
-            None
+            super::documents::document_path(&process_name, &window_title)
         };
 
         Some(ForegroundInfo {

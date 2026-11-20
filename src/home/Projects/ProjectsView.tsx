@@ -16,6 +16,7 @@ import {
   setCompany,
   setProjectAliases,
   setProjectColors,
+  setProjectInPicker,
   updateProject,
 } from "../../lib/tauri";
 import type { ProjectDto } from "../../lib/types";
@@ -371,6 +372,9 @@ export function ProjectsView() {
               <th className="drag-handle" aria-hidden="true" />
               <th>Nome</th>
               <th>Alias</th>
+              <th title="Mostrato nell'elenco rapido del widget. Gli altri si trovano scrivendo il nome.">
+                Nel widget
+              </th>
               <th>Azioni</th>
             </tr>
           </thead>
@@ -485,6 +489,14 @@ export function ProjectsView() {
                   ) : (
                     <span className="project-alias-empty">—</span>
                   )}
+                </td>
+                <td className="project-picker-cell">
+                  <input
+                    type="checkbox"
+                    checked={project.inPicker}
+                    aria-label={`Mostra ${project.name} nell'elenco del widget`}
+                    onChange={(event) => void setProjectInPicker(project.id, event.target.checked).then(refresh)}
+                  />
                 </td>
                 <td className="project-actions-cell">
                   {editingId === project.id ? (

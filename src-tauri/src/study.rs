@@ -18,6 +18,10 @@ const CONTINUE_GAP_SECS: i64 = 10;
 const STARTED_KEY: &str = "study_started_at";
 const CLOSED_KEY: &str = "study_closed_at";
 const UPLOADED_KEY: &str = "study_uploaded_at";
+const ROUND_KEY: &str = "study_round";
+/// Round 2 starts with the detection changes built on round 1's findings
+/// (Nov 2026); bump it to start another measured round.
+const CURRENT_ROUND: &str = "2";
 
 pub struct Observation<'a> {
     pub process: &'a str,
@@ -417,8 +421,31 @@ pub fn ensure_started(app: &AppHandle) {
         let state = app.state::<AppState>();
         let conn = state.db.lock().unwrap();
         let fresh = matches!(meta(&conn, STARTED_KEY), Ok(None)) && matches!(meta(&conn, CLOSED_KEY), Ok(None));
-        fresh && start(&conn, Utc::now()).is_ok()
+        if fresh {
+            start(&conn, Utc::now()).is_ok()
+        } else if matches!(meta(&conn, CLOSED_KEY), Ok(None))
+            && !matches!(meta(&conn, ROUND_KEY), Ok(Some(ref round)) if round == CURRENT_ROUND)
+        {
+            // A new round measures the detection changes made from the
+            // previous one's data. Its log is kept as a file first (the
+            // GitHub upload covers only PCs with sync set up).
+            if let Ok(content) = export_json(&conn, Utc::now(), &device_name()) {
+                let dir = app.path().document_dir().unwrap_or_else(|_| crate::db::data_dir(app));
+                let name = format!("pulse-studio-rilevamento-{}-giro1.json", Utc::now().format("%Y-%m-%d"));
+                if let Err(err) = std::fs::write(dir.join(name), content) {
+                    log::warn!("study: failed to keep round 1 log: {err}");
+                }
+            }
+            start(&conn, Utc::now()).is_ok()
+        } else {
+            false
+        }
     };
+    if started {
+        let state = app.state::<AppState>();
+        let conn = state.db.lock().unwrap();
+        let _ = set_meta(&conn, ROUND_KEY, CURRENT_ROUND);
+    }
     if started {
         log::info!("detection study started");
         detector::set_study_active(app, true);

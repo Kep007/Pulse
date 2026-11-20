@@ -440,6 +440,34 @@ time {
   background: #2563eb;
 }
 
+.picker-item.highlighted:not(.active) {
+  background: #e2e8f0;
+}
+
+.picker-search {
+  flex-shrink: 0;
+  margin-bottom: 4px;
+  border: 1px solid #d0d5dd;
+  border-radius: 6px;
+  padding: 7px 9px;
+  font: inherit;
+  font-size: 12.5px;
+  color: #172033;
+  background: #ffffff;
+  outline: none;
+}
+
+.picker-search:focus {
+  border-color: #2563eb;
+}
+
+.picker-empty {
+  flex-shrink: 0;
+  margin: 4px 9px;
+  font-size: 11.5px;
+  color: #667085;
+}
+
 .confirm-overlay {
   position: fixed;
   inset: 0;

@@ -37,6 +37,26 @@ fn is_combining_mark(c: char) -> bool {
 /// and separators don't matter.
 const EXCLUDED_TITLE_PHRASES: &[&str] = &["progetti lt consulting"];
 
+/// Pages the user *consults* while working on something else — an
+/// editorial calendar, the Asana inbox, the shared client-access file. In
+/// the detection study (Oct–Nov 2026) these produced a large share of the
+/// "No" answers: they name a client, but looking at them isn't switching.
+/// They can still switch an auto-tracked segment; they just never prompt
+/// over a project the user picked by hand.
+const REFERENCE_TITLE_PHRASES: &[&str] = &[
+    "calendario editoriale",
+    "posta in arrivo",
+    "file accessi",
+    "le mie attivita",
+];
+
+pub fn is_reference_title(text: &str) -> bool {
+    let normalized = normalize_text(text);
+    REFERENCE_TITLE_PHRASES
+        .iter()
+        .any(|phrase| normalized.contains(phrase))
+}
+
 fn is_excluded_title(normalized_title: &str) -> bool {
     EXCLUDED_TITLE_PHRASES
         .iter()
@@ -150,11 +170,16 @@ impl Matcher {
     #[cfg(test)]
     pub fn match_project(&self, window_title: &str, process_name: &str) -> Option<i64> {
         self.match_project_with_term(window_title, process_name)
-            .map(|(project_id, _)| project_id)
+            .map(|(project_id, _, _)| project_id)
     }
 
-    /// Same as `match_project`, plus the (normalized) term that won.
-    pub fn match_project_with_term(&self, window_title: &str, process_name: &str) -> Option<(i64, String)> {
+    /// Same as `match_project`, plus the (normalized) term that won and
+    /// whether it was a company term.
+    pub fn match_project_with_term(
+        &self,
+        window_title: &str,
+        process_name: &str,
+    ) -> Option<(i64, String, bool)> {
         let title = normalize_text(window_title);
         let process = normalize_text(process_name);
 
@@ -173,7 +198,7 @@ impl Matcher {
                 .iter()
                 .filter(|term| term.is_company == company)
                 .max_by_key(|term| term.term_len)
-                .map(|term| (term.project_id, term.term.clone()))
+                .map(|term| (term.project_id, term.term.clone(), term.is_company))
         };
         best_of(false).or_else(|| best_of(true))
     }
@@ -267,6 +292,21 @@ mod tests {
             matcher.match_project("PROGETTI_LT_CONSULTING - Fogli Google", "chrome"),
             None,
         );
+    }
+
+    #[test]
+    fn company_only_matches_are_flagged() {
+        let matcher = matcher_with_company();
+        assert_eq!(matcher.match_project_with_term("TEAM LT CONSULTING", "chrome").map(|m| m.2), Some(true));
+        assert_eq!(matcher.match_project_with_term("LT TEAM/ OG MOTORS", "chrome").map(|m| m.2), Some(false));
+    }
+
+    #[test]
+    fn reference_pages_are_recognized() {
+        assert!(is_reference_title("SOFLY — Calendario editoriale - Fogli Google"));
+        assert!(is_reference_title("Posta in arrivo di ltmarketing.it - SOFLY - Asana"));
+        assert!(is_reference_title("Le mie attività - Asana"));
+        assert!(!is_reference_title("SOFLY - Figma"));
     }
 
     #[test]

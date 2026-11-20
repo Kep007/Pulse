@@ -44,12 +44,12 @@ export function StudySetting() {
     <div className={status?.due ? "settings-row settings-row-stacked study-setting due" : "settings-row settings-row-stacked study-setting"}>
       <label className="break-schedule-header">
         <div>
-          <strong>Studio del rilevamento (Fase 1)</strong>
+          <strong>Studio del rilevamento</strong>
           <p>
             Per {STUDY_DAYS} giorni Pulse registra, solo su questo PC, ogni finestra su cui ti fermi,
             cosa ha riconosciuto e quando lo correggi tu. Al {STUDY_DAYS}° giorno il registro viene
             caricato da solo nel tuo repository GitHub privato (se la sincronizzazione è
-            configurata) e a ogni avvio compare un avviso rosso per passare alla Fase 2. I dati
+            configurata) e a ogni avvio compare un avviso rosso finché non lo analizziamo. I dati
             più vecchi di 35 giorni si cancellano da soli.
           </p>
         </div>
@@ -67,7 +67,7 @@ export function StudySetting() {
         <div className="sync-footer">
           <span className={status.due ? "sync-state error" : "sync-state"}>
             {status.due
-              ? `Studio completato (${status.daysElapsed} giorni): esporta il registro e passa alla Fase 2.`
+              ? `Studio completato (${status.daysElapsed} giorni): esporta il registro e chiedi a Claude di analizzarlo.`
               : `Giorno ${status.daysElapsed + 1} di ${STUDY_DAYS} · mancano ${remaining} giorni · ${status.windowsLogged} finestre registrate`}
             {status.uploadedAt ? " · già caricato su GitHub" : ""}
           </span>

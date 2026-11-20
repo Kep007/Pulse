@@ -10,6 +10,9 @@ pub struct ProjectDto {
     /// (abbreviations, file-naming conventions) — edited as a single
     /// comma-separated field alongside the name, not managed one at a time.
     pub aliases: Vec<String>,
+    /// Shown in the widget's quick picker without searching.
+    #[serde(rename = "inPicker")]
+    pub in_picker: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -135,31 +138,4 @@ pub struct SegmentDto {
     pub duration_seconds: i64,
     pub project: Option<ProjectDto>,
     pub activity_type: Option<ActivityTypeDto>,
-}
-
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct FocusTotalsDto {
-    pub tracked_seconds: i64,
-    pub deep_work_seconds: i64,
-    pub sessions: i64,
-    pub short_sessions: i64,
-    pub switches: i64,
-}
-
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ProjectFocusDto {
-    pub id: i64,
-    pub name: String,
-    pub color: Option<String>,
-    pub totals: FocusTotalsDto,
-}
-
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct FocusStatsDto {
-    pub days: i64,
-    pub overall: FocusTotalsDto,
-    pub projects: Vec<ProjectFocusDto>,
 }

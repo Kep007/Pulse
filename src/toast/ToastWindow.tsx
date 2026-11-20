@@ -563,7 +563,7 @@ export function ToastWindow() {
         return prompt(
           "danger",
           <IconChart size={16} />,
-          "Studio completato: passa alla Fase 2",
+          "Studio del rilevamento completato",
           <>
             Sono passati <strong>{current.status.daysElapsed} giorni</strong> di registro del
             rilevamento.{" "}
